@@ -87,11 +87,42 @@
     return status;
   }
 
+  /**
+   * Convert SDK records to plain objects (getState extracts non-enumerable props).
+   */
+  function toPlain(data) {
+    if (Array.isArray(data)) {
+      return data.map(function (r) { return r && r.getState ? r.getState() : r; });
+    }
+    return data && data.getState ? data.getState() : data;
+  }
+
+  /**
+   * Subscribe to an observable, resolve on first emission, auto-unsubscribe.
+   * Records are converted to plain objects automatically.
+   */
+  function fetchOnce(observable) {
+    return new Promise(function (resolve, reject) {
+      var sub;
+      sub = observable.subscribe({
+        next: function (data) {
+          if (sub) sub.unsubscribe();
+          resolve(toPlain(data));
+        },
+        error: function (err) {
+          reject(err);
+        },
+      });
+    });
+  }
+
   // Expose on window
   window.VitalSync = {
     connect: connect,
     getPlugin: getPlugin,
     getStatus: getStatus,
     onStatusChange: onStatusChange,
+    fetchOnce: fetchOnce,
+    toPlain: toPlain,
   };
 })();

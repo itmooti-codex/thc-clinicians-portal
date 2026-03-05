@@ -4,11 +4,8 @@
 
 window.__ONTRAPORT_MOCK__ = true;
 
-// Simulates [Visitor//Contact ID]
-window.__MOCK_CONTACT_ID__ = '12345';
+// Simulates [Visitor//Contact ID] — set to a real doctor Contact ID for testing
+window.__MOCK_CONTACT_ID__ = '';
 
-// Simulates a VitalSync API key (replace with a real dev key if available)
-window.__MOCK_API_KEY__ = '';
-
-// Add more mock values as needed for your project.
-// These correspond to the merge fields used in html/header.html.
+// VitalSync API key for THC
+window.__MOCK_API_KEY__ = 'ke7ooqjCSJdhYXMTXSjGU';

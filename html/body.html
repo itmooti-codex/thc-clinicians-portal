@@ -1,18 +1,219 @@
 <!-- thc-clinicians-portal — Ontraport Body HTML -->
 <!-- Paste this into an Ontraport HTML block on the page -->
 
-<div id="app-root" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-  <div id="app-loading" class="flex items-center justify-center py-20">
-    <div class="text-center">
-      <div class="loading-spinner mx-auto mb-4"></div>
-      <p class="text-sm text-gray-500">Loading...</p>
+<div id="app-root">
+  <!-- ── Loading ──────────────────────────────────────── -->
+  <div id="app-loading" class="app-loading">
+    <div class="loading-spinner"></div>
+    <p class="loading-text">Connecting to The Happy Clinic...</p>
+  </div>
+
+  <!-- ── Error ────────────────────────────────────────── -->
+  <div id="app-error" class="app-error hidden">
+    <div class="error-icon">!</div>
+    <p class="error-title">Something went wrong</p>
+    <p class="error-detail">Please refresh the page or contact support.</p>
+  </div>
+
+  <!-- ── Main Content ─────────────────────────────────── -->
+  <div id="app-content" class="hidden">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <h1 class="header-title">Clinicians Portal</h1>
+        <span class="header-subtitle" id="doctor-name"></span>
+      </div>
+      <div class="header-right">
+        <span class="status-dot" id="status-dot"></span>
+      </div>
+    </header>
+
+    <!-- Top Navigation Tabs -->
+    <nav class="tab-bar" id="main-tabs">
+      <button class="tab-btn active" data-tab="patients">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        Patients
+      </button>
+      <button class="tab-btn" data-tab="appointments">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        My Appointments
+      </button>
+    </nav>
+
+    <!-- ═══ PATIENTS VIEW ═══ -->
+    <div id="view-patients" class="view">
+      <div class="view-toolbar">
+        <div class="search-container">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="patient-search" class="search-input" placeholder="Search by name, email, or phone...">
+        </div>
+        <button class="btn btn-primary" id="btn-add-patient">+ New Patient</button>
+      </div>
+      <div class="patient-count" id="patient-count"></div>
+      <div id="patient-list" class="card-list"></div>
+      <div id="patient-empty" class="empty-state hidden">
+        <p>No patients found</p>
+      </div>
+    </div>
+
+    <!-- ═══ PATIENT DETAIL VIEW ═══ -->
+    <div id="view-patient-detail" class="view hidden">
+      <button class="btn-back" id="btn-back-patients">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="15 18 9 12 15 6"/></svg>
+        Back to Patients
+      </button>
+
+      <!-- Patient Hero Card -->
+      <div class="patient-hero" id="patient-hero"></div>
+
+      <!-- Detail Sub-Tabs -->
+      <nav class="detail-tab-bar" id="detail-tabs">
+        <button class="detail-tab-btn active" data-detail-tab="appointments">Appointments</button>
+        <button class="detail-tab-btn" data-detail-tab="notes">Clinical Notes</button>
+        <button class="detail-tab-btn" data-detail-tab="scripts">Scripts</button>
+      </nav>
+
+      <!-- Detail: Appointments -->
+      <div id="detail-appointments" class="detail-panel">
+        <div class="detail-toolbar">
+          <h3 class="detail-heading">Appointments</h3>
+          <button class="btn btn-primary btn-sm" id="btn-add-appointment">+ New Appointment</button>
+        </div>
+        <div id="patient-appointments-list" class="record-list"></div>
+        <div id="patient-appointments-empty" class="empty-state-sm hidden">No appointments found</div>
+      </div>
+
+      <!-- Detail: Clinical Notes -->
+      <div id="detail-notes" class="detail-panel hidden">
+        <h3 class="detail-heading">Clinical Notes</h3>
+        <div id="patient-notes-list" class="record-list"></div>
+        <div id="patient-notes-empty" class="empty-state-sm hidden">No clinical notes found</div>
+      </div>
+
+      <!-- Detail: Scripts -->
+      <div id="detail-scripts" class="detail-panel hidden">
+        <h3 class="detail-heading">Scripts / Prescriptions</h3>
+        <div id="patient-scripts-list" class="record-list"></div>
+        <div id="patient-scripts-empty" class="empty-state-sm hidden">No scripts found</div>
+      </div>
+    </div>
+
+    <!-- ═══ DOCTOR APPOINTMENTS VIEW ═══ -->
+    <div id="view-appointments" class="view hidden">
+      <h2 class="view-title">My Appointments</h2>
+      <div id="doctor-appointments-list" class="record-list"></div>
+      <div id="doctor-appointments-empty" class="empty-state hidden">
+        <p>No appointments found</p>
+      </div>
+      <div id="doctor-appointments-loading" class="loading-inline hidden">
+        <div class="loading-spinner loading-spinner-sm"></div>
+        <span>Loading appointments...</span>
+      </div>
     </div>
   </div>
-  <div id="app-content" class="hidden">
-    <!-- App content rendered by JS -->
+
+  <!-- ═══ ADD PATIENT MODAL ═══ -->
+  <div id="modal-add-patient" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Add New Patient</h2>
+        <button class="modal-close" data-close-modal="modal-add-patient">&times;</button>
+      </div>
+      <form id="form-add-patient" class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-first-name">First Name *</label>
+            <div class="input-wrapper"><input type="text" id="new-first-name" required></div>
+          </div>
+          <div class="form-group">
+            <label for="new-last-name">Last Name *</label>
+            <div class="input-wrapper"><input type="text" id="new-last-name" required></div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-email">Email *</label>
+            <div class="input-wrapper"><input type="email" id="new-email" required></div>
+          </div>
+          <div class="form-group">
+            <label for="new-phone">Phone</label>
+            <div class="input-wrapper"><input type="tel" id="new-phone"></div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-address">Address</label>
+            <div class="input-wrapper"><input type="text" id="new-address"></div>
+          </div>
+          <div class="form-group">
+            <label for="new-city">City</label>
+            <div class="input-wrapper"><input type="text" id="new-city"></div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-state">State</label>
+            <div class="input-wrapper">
+              <select id="new-state">
+                <option value="">Select...</option>
+                <option value="ACT">ACT</option>
+                <option value="NSW">NSW</option>
+                <option value="NT">NT</option>
+                <option value="QLD">QLD</option>
+                <option value="SA">SA</option>
+                <option value="TAS">TAS</option>
+                <option value="VIC">VIC</option>
+                <option value="WA">WA</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="new-zip">Postcode</label>
+            <div class="input-wrapper"><input type="text" id="new-zip" maxlength="4"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-add-patient">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-patient">Create Patient</button>
+        </div>
+      </form>
+    </div>
   </div>
-  <div id="app-error" class="hidden text-center py-20">
-    <p class="text-red-600 font-semibold">Something went wrong.</p>
-    <p class="text-sm text-gray-500 mt-2">Please refresh the page.</p>
+
+  <!-- ═══ ADD APPOINTMENT MODAL ═══ -->
+  <div id="modal-add-appointment" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">New Appointment</h2>
+        <button class="modal-close" data-close-modal="modal-add-appointment">&times;</button>
+      </div>
+      <form id="form-add-appointment" class="modal-body">
+        <input type="hidden" id="appt-patient-id">
+        <div class="form-group">
+          <label>Patient</label>
+          <div class="appt-patient-display" id="appt-patient-name"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="appt-type">Type *</label>
+            <div class="input-wrapper">
+              <select id="appt-type" required>
+                <option value="Initial Consultation">Initial Consultation</option>
+                <option value="Follow Up Consultation">Follow Up Consultation</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="appt-date">Date & Time *</label>
+            <div class="input-wrapper"><input type="datetime-local" id="appt-date" required></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-add-appointment">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-appointment">Create Appointment</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
