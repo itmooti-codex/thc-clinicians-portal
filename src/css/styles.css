@@ -1,0 +1,83 @@
+/* thc-clinicians-portal Styles */
+
+/* ── Brand Tokens ──────────────────────────────────────────── */
+:root {
+  --brand-primary: #20c0c0;
+  --brand-secondary: #2d3748;
+  --brand-bg: #fafafa;
+  --brand-white: #ffffff;
+  --brand-black: #000000;
+  --brand-text: #1a1a1a;
+  --brand-text-muted: #6b6b6b;
+  --brand-border: #e0e0e0;
+  --brand-surface: #f5f5f5;
+  --brand-error: #dc2626;
+  --brand-error-bg: #fef2f2;
+  --brand-success: #16a34a;
+  --brand-success-bg: #f0fdf4;
+  --brand-warning: #d97706;
+  --brand-warning-bg: #fffbeb;
+  --font-heading: 'Lora', sans-serif;
+  --font-body: 'Lato', sans-serif;
+}
+
+/* ── Base ───────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--brand-text);
+  line-height: 1.6;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--brand-black);
+}
+
+/* ── Utilities ──────────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+/* ── Loading Spinner ────────────────────────────────────────── */
+.loading-spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--brand-border);
+  border-top-color: var(--brand-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Ontraport Overrides ────────────────────────────────────── */
+/* Fix common Ontraport page styling conflicts */
+.input-wrapper {
+  margin-top: 0.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(209 213 219);
+  padding: 8px;
+  width: 100%;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  outline: none;
+}
+
+.input-wrapper input {
+  border: none !important;
+  box-shadow: none !important;
+  height: unset !important;
+  outline: none !important;
+  margin: 0 !important;
+  font-size: 16px !important;
+  width: 100%;
+  background: transparent;
+}
+
+.input-wrapper:focus-within {
+  box-shadow: 0 0 0 2px rgba(59 130 246 / 0.5);
+  border-color: rgb(59 130 246);
+}

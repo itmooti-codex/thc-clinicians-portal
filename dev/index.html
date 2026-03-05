@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Happy Clinic | thc-clinicians-portal (Dev)</title>
+
+  <!-- ========== MOCK DATA (dev only) ========== -->
+  <script src="./mock-data.js"></script>
+
+  <!-- ========== SIMULATED ONTRAPORT HEADER ========== -->
+  <!-- In production, these values come from Ontraport merge fields in header code -->
+  <script>
+    window.AppConfig = window.AppConfig || {};
+    if (window.__ONTRAPORT_MOCK__) {
+      Object.assign(window.AppConfig, {
+        SLUG: 'thc',
+        API_KEY: window.__MOCK_API_KEY__ || '',
+        CONTACT_ID: window.__MOCK_CONTACT_ID__ || '',
+        DEBUG: true,
+      });
+    }
+  </script>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- VitalSync SDK -->
+  <script async data-chunk="client"
+    src="https://static-au03.vitalstats.app/static/sdk/v1/latest.js"
+    crossorigin="anonymous"></script>
+
+  <!-- VitalStats Dynamic List SDK (for Ontraport dynamic lists) -->
+  <script async
+    src="https://static-au03.vitalstats.app/static/dynamic-list/v1/latest.js"
+    crossorigin="anonymous"></script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="../src/css/styles.css">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- ========== DEV BANNER ========== -->
+  <div id="dev-banner" style="background:#fff3cd;padding:8px 16px;font-size:12px;text-align:center;font-family:monospace;">
+    DEV MODE — Simulating Ontraport page environment
+  </div>
+
+  <!-- ========== SIMULATED ONTRAPORT BODY ========== -->
+  <!-- In production, this HTML goes into Ontraport page body HTML blocks -->
+  <div id="app-root" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div id="app-loading" class="flex items-center justify-center py-20">
+      <div class="text-center">
+        <div class="loading-spinner mx-auto mb-4"></div>
+        <p class="text-sm text-gray-500">Loading...</p>
+      </div>
+    </div>
+    <div id="app-content" class="hidden">
+      <!-- App content rendered by JS -->
+    </div>
+    <div id="app-error" class="hidden text-center py-20">
+      <p class="text-red-600 font-semibold">Something went wrong.</p>
+      <p class="text-sm text-gray-500 mt-2">Please refresh the page.</p>
+    </div>
+  </div>
+
+  <!-- ========== SIMULATED ONTRAPORT FOOTER ========== -->
+  <script src="../src/js/config.js"></script>
+  <script src="../src/js/utils.js"></script>
+  <script src="../src/js/vitalsync.js"></script>
+  <script src="../src/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+.env
+.env.local
+*.log
+
+# Research raw data (contains PII)
+research/raw/
+
+# MCP config (contains API keys)
+.mcp.json
