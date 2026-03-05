@@ -7,5 +7,12 @@ export default defineConfig({
   server: {
     port: 3000,
     open: '/dev/',
+    proxy: {
+      '/ontraport-api': {
+        target: 'https://api.ontraport.com/1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ontraport-api/, ''),
+      },
+    },
   },
 });

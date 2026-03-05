@@ -89,10 +89,19 @@
 
   /**
    * Convert SDK records to plain objects (getState extracts non-enumerable props).
+   * fetchAllRecords() with toMainInstance returns an Object keyed by PK, not an Array.
+   * This converts both cases to an Array of plain objects.
    */
   function toPlain(data) {
     if (Array.isArray(data)) {
       return data.map(function (r) { return r && r.getState ? r.getState() : r; });
+    }
+    if (data && typeof data === 'object' && !data.getState) {
+      // Object keyed by PK — convert to array
+      return Object.keys(data).map(function (key) {
+        var r = data[key];
+        return r && r.getState ? r.getState() : r;
+      });
     }
     return data && data.getState ? data.getState() : data;
   }

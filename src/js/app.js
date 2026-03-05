@@ -86,7 +86,13 @@
     u.byId('form-add-patient').addEventListener('submit', handleCreatePatient);
 
     // Add appointment
-    u.byId('btn-add-appointment').addEventListener('click', function () { openModal('modal-add-appointment'); });
+    u.byId('btn-add-appointment').addEventListener('click', function () {
+      // Default date/time to now
+      var now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      u.byId('appt-date').value = now.toISOString().slice(0, 16);
+      openModal('modal-add-appointment');
+    });
     u.byId('form-add-appointment').addEventListener('submit', handleCreateAppointment);
 
     // Back button
@@ -556,10 +562,16 @@
 
     if (doctorId) payload.doctor_id = Number(doctorId);
 
-    data.createAppointment(payload).then(function () {
+    data.createAppointment(payload).then(function (result) {
       u.showToast('Appointment created', 'success');
       closeModal('modal-add-appointment');
       u.byId('form-add-appointment').reset();
+
+      // Open the clinician appointment page in Ontraport
+      var pageUrl = result && result.page_105_url;
+      if (pageUrl) {
+        window.open(pageUrl, '_blank');
+      }
 
       // Refresh patient appointments
       loadPatientAppointments(patientId);
