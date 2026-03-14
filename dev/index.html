@@ -73,18 +73,29 @@
           <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           My Appointments
         </button>
+        <button class="tab-btn" data-tab="timeslots">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          My Timeslots
+        </button>
+        <button type="button" class="btn btn-icon tab-bar-settings" id="page-settings-cog" title="Page settings" aria-label="Page settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
       </nav>
       <div id="view-patients" class="view">
         <div class="view-toolbar">
           <div class="search-container">
             <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="patient-search" class="search-input" placeholder="Search by name, email, or phone...">
+            <input type="text" id="patient-search" class="search-input" placeholder="Search by name, email, or phone — press Enter to search" aria-label="Search patients">
           </div>
           <button class="btn btn-primary" id="btn-add-patient">+ New Patient</button>
         </div>
         <div class="patient-count" id="patient-count"></div>
+        <div id="patient-load-error" class="empty-state hidden" role="alert">
+          <p>Couldn't load patients. Check your connection and try again.</p>
+          <button type="button" class="btn btn-primary" id="btn-retry-load">Retry</button>
+        </div>
         <div id="patient-list" class="card-list"></div>
-        <div id="patient-empty" class="empty-state hidden"><p>No patients found</p></div>
+        <div id="patient-empty" class="empty-state hidden"><p id="patient-empty-msg">No patients found</p></div>
       </div>
       <div id="view-patient-detail" class="view hidden">
         <button class="btn-back" id="btn-back-patients">
@@ -117,12 +128,113 @@
         </div>
       </div>
       <div id="view-appointments" class="view hidden">
-        <h2 class="view-title">My Appointments</h2>
-        <div id="doctor-appointments-list" class="record-list"></div>
-        <div id="doctor-appointments-empty" class="empty-state hidden"><p>No appointments found</p></div>
-        <div id="doctor-appointments-loading" class="loading-inline hidden">
-          <div class="loading-spinner loading-spinner-sm"></div>
-          <span>Loading appointments...</span>
+        <div class="view-toolbar">
+          <h2 class="view-title" style="margin:0">My Appointments</h2>
+          <button class="btn btn-primary" id="btn-add-appointment-from-list">+ New Appointment</button>
+        </div>
+        <div id="doctor-appointments-list-wrap" class="hidden">
+          <div id="doctor-appointments-list" class="record-list"></div>
+          <div id="doctor-appointments-empty" class="empty-state hidden"><p>No appointments found</p></div>
+          <div id="doctor-appointments-loading" class="loading-inline hidden">
+            <div class="loading-spinner loading-spinner-sm"></div>
+            <span>Loading appointments...</span>
+          </div>
+        </div>
+        <div id="doctor-appointments-calendar" class="calendar-container" aria-label="My Appointments calendar"></div>
+      </div>
+      <div id="view-timeslots" class="view hidden">
+        <div class="view-toolbar">
+          <h2 class="view-title" style="margin:0">My Timeslots</h2>
+          <button class="btn btn-primary" id="btn-add-timeslot">+ New Timeslot</button>
+        </div>
+        <div id="timeslots-list-wrap" class="hidden">
+          <div id="timeslots-list" class="record-list"></div>
+          <div id="timeslots-empty" class="empty-state hidden"><p>No timeslots found</p></div>
+          <div id="timeslots-loading" class="loading-inline hidden">
+            <div class="loading-spinner loading-spinner-sm"></div>
+            <span>Loading timeslots...</span>
+          </div>
+        </div>
+        <div id="timeslots-calendar" class="calendar-container" aria-label="My Timeslots calendar"></div>
+      </div>
+    </div>
+    <!-- Add Timeslot Modal -->
+    <div id="modal-add-timeslot" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 id="modal-add-timeslot-title" class="modal-title">New Timeslot</h2>
+          <button class="modal-close" data-close-modal="modal-add-timeslot">&times;</button>
+        </div>
+        <form id="form-add-timeslot" class="modal-body">
+          <div class="form-group">
+            <label for="slot-start">Start Date & Time *</label>
+            <div class="input-wrapper"><input type="datetime-local" id="slot-start" step="1800" required></div>
+            <p id="slot-selected-day" class="form-hint" aria-live="polite"></p>
+            <p class="form-hint">Must be on the hour or half-hour (e.g. 9:00, 9:30).</p>
+          </div>
+          <div class="form-group">
+            <label for="slot-max">Max Appointments</label>
+            <div class="input-wrapper">
+              <select id="slot-max">
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-add-timeslot">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-timeslot">Create Timeslot</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <!-- Timeslot actions (Edit / Delete / Cancel) -->
+    <div id="modal-timeslot-actions" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Timeslot</h2>
+          <button class="modal-close" data-close-modal="modal-timeslot-actions">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p id="timeslot-action-summary" class="timeslot-action-summary"></p>
+          <div id="timeslot-action-appointment-list-wrap">
+            <ul id="timeslot-action-appointment-list" class="timeslot-action-appointment-list"></ul>
+          </div>
+          <div id="timeslot-action-edit-delete" class="flex gap-2" style="flex-wrap:wrap;gap:8px;margin-top:12px;">
+            <button type="button" class="btn btn-primary" id="timeslot-action-edit">Edit</button>
+            <button type="button" class="btn btn-secondary" id="timeslot-action-delete">Delete</button>
+          </div>
+          <div id="timeslot-action-cancel" class="hidden" style="margin-top:12px;">
+            <button type="button" class="btn btn-primary" id="timeslot-action-cancel-btn">Cancel timeslot</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Timeslot calendar view hours -->
+    <div id="modal-timeslot-view-hours" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Calendar view hours</h2>
+          <button class="modal-close" data-close-modal="modal-timeslot-view-hours">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="form-hint" style="margin-top:0">Set the time range shown on the calendar. Default is 8am to 8pm.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="timeslot-view-start">Start time</label>
+              <div class="input-wrapper"><input type="time" id="timeslot-view-start" value="08:00"></div>
+            </div>
+            <div class="form-group">
+              <label for="timeslot-view-end">End time</label>
+              <div class="input-wrapper"><input type="time" id="timeslot-view-end" value="20:00"></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-timeslot-view-hours">Cancel</button>
+            <button type="button" class="btn btn-primary" id="timeslot-view-hours-save">Save</button>
+          </div>
         </div>
       </div>
     </div>
@@ -193,14 +305,17 @@
     <div id="modal-add-appointment" class="modal-overlay hidden">
       <div class="modal">
         <div class="modal-header">
-          <h2 class="modal-title">New Appointment</h2>
+          <h2 class="modal-title">Add New Appointment</h2>
           <button class="modal-close" data-close-modal="modal-add-appointment">&times;</button>
         </div>
         <form id="form-add-appointment" class="modal-body">
-          <input type="hidden" id="appt-patient-id">
           <div class="form-group">
-            <label>Patient</label>
-            <div class="appt-patient-display" id="appt-patient-name"></div>
+            <label for="appt-patient-search">Patient *</label>
+            <div class="patient-search-wrap">
+              <input type="text" id="appt-patient-search" class="search-input" placeholder="Type to search by name..." autocomplete="off">
+              <input type="hidden" id="appt-patient-id" name="appt-patient-id">
+              <div id="appt-patient-results" class="patient-search-results hidden" role="listbox" aria-label="Matching patients"></div>
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -227,10 +342,12 @@
   </div>
 
   <!-- ========== SIMULATED ONTRAPORT FOOTER ========== -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
   <script src="../src/js/config.js"></script>
   <script src="../src/js/utils.js"></script>
   <script src="../src/js/vitalsync.js"></script>
   <script src="../src/js/data.js"></script>
+  <script src="./test-mock.js"></script>
   <script src="../src/js/app.js"></script>
 </body>
 </html>

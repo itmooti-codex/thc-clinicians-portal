@@ -4,7 +4,7 @@
 
 window.__ONTRAPORT_MOCK__ = true;
 
-// Simulates [Visitor//Contact ID] — set to a real doctor Contact ID for testing
+// Simulates [Visitor//Contact ID] — set to the logged-in doctor's Contact ID (e.g. Dr Mario Alam)
 window.__MOCK_CONTACT_ID__ = '425';
 
 // VitalSync API key for THC

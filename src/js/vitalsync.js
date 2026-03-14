@@ -97,8 +97,9 @@
       return data.map(function (r) { return r && r.getState ? r.getState() : r; });
     }
     if (data && typeof data === 'object' && !data.getState) {
-      // Object keyed by PK — convert to array
-      return Object.keys(data).map(function (key) {
+      // Object keyed by PK — keys may be non-enumerable, so use getOwnPropertyNames
+      var keys = Object.getOwnPropertyNames(data);
+      return keys.map(function (key) {
         var r = data[key];
         return r && r.getState ? r.getState() : r;
       });

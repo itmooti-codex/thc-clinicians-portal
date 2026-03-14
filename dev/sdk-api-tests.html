@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VitalSync SDK API Tests</title>
+  <style>
+    body { font-family: monospace; padding: 16px; background: #1a1a1a; color: #eee; }
+    h1 { color: #6ee; }
+    #output { white-space: pre-wrap; margin-top: 12px; padding: 12px; background: #222; border-radius: 8px; max-height: 70vh; overflow-y: auto; }
+    .pass { color: #6e6; }
+    .fail { color: #e66; }
+    .meta { color: #888; }
+  </style>
+</head>
+<body>
+  <h1>VitalSync SDK API Tests (10)</h1>
+  <p class="meta">Runs against live SDK. Results appear below. Check console for full payloads.</p>
+  <div id="output">Connecting...</div>
+
+  <script src="./mock-data.js"></script>
+  <script>
+    window.AppConfig = window.AppConfig || {};
+    if (window.__ONTRAPORT_MOCK__) {
+      Object.assign(window.AppConfig, {
+        SLUG: 'thc',
+        API_KEY: window.__MOCK_API_KEY__ || '',
+        CONTACT_ID: window.__MOCK_CONTACT_ID__ || '',
+        DEBUG: true,
+      });
+    }
+  </script>
+  <script src="../src/js/config.js"></script>
+  <script async src="https://static-au03.vitalstats.app/static/sdk/v1/latest.js" crossorigin="anonymous"></script>
+  <script src="../src/js/vitalsync.js"></script>
+  <script>
+(function () {
+  'use strict';
+  var out = document.getElementById('output');
+  var log = [];
+  function append(msg, className) {
+    var line = (className ? '<span class="' + className + '">' + msg + '</span>' : msg);
+    log.push(msg);
+    out.innerHTML += line + '\n';
+    out.scrollTop = out.scrollHeight;
+  }
+
+  function runQuery(name, run) {
+    return Promise.resolve().then(function () {
+      return run();
+    }).then(function (data) {
+      var count;
+      if (Array.isArray(data)) count = data.length;
+      else if (data && typeof data === 'object' && data !== null && !Array.isArray(data))
+        count = ('id' in data && Object.keys(data).length > 1) ? 1 : Object.keys(data).length;
+      else count = 0;
+      append('[PASS] ' + name + ' (count: ' + count + ')', 'pass');
+      if (window.AppConfig.DEBUG && data) console.log('SDK test "' + name + '":', data);
+      return data;
+    }).catch(function (err) {
+      var msg = (err && err.message) || String(err);
+      append('[FAIL] ' + name + ': ' + msg, 'fail');
+      console.error('SDK test "' + name + '" error:', err);
+      throw err;
+    });
+  }
+
+  function delay(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  }
+
+  window.runSdkTests = function () {
+    out.innerHTML = '';
+    append('Connecting to VitalSync...', 'meta');
+    var plugin;
+    return window.VitalSync.connect()
+      .then(function (p) {
+        plugin = p || window.VitalSync.getPlugin();
+        if (!plugin) throw new Error('No plugin after connect');
+        append('Connected. Running 10 tests (4s delay between each to avoid SDK "currently executing").', 'meta');
+        return delay(4000);
+      })
+      .then(function () {
+        return runQuery('1. ThcItem limit 5', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcItem').query().limit(5).fetchAllRecordsArray().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('2. ThcContact limit 5', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcContact').query().limit(5).fetchAllRecordsArray().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('3. ThcContact by id 425', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcContact').query().where('id', 425).limit(1).fetchOneRecord().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('4. ThcAppointment limit 5', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcAppointment').query().limit(5).fetchAllRecords().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('5. ThcAppointment doctor_id=425 limit 10', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcAppointment').query().where('doctor_id', 425).limit(10).fetchAllRecords().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('6. ThcItem limit 20', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcItem').query().limit(20).fetchAllRecordsArray().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('7. ThcContact limit 20', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcContact').query().limit(20).fetchAllRecordsArray().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('8. ThcClinicalNote patient_id=425 limit 5', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcClinicalNote').query().where('patient_id', 425).limit(5).fetchAllRecords().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('9. ThcScript patient_id=425 limit 5', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcScript').query().where('patient_id', 425).limit(5).fetchAllRecords().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () { return delay(4000); })
+      .then(function () {
+        return runQuery('10. ThcContact search first_name like %a%', function () {
+          return window.VitalSync.fetchOnce(
+            plugin.switchTo('ThcContact').query().where('first_name', 'like', '%a%').limit(10).fetchAllRecordsArray().pipe(window.toMainInstance(true))
+          );
+        });
+      })
+      .then(function () {
+        append('', 'meta');
+        append('All 10 tests finished.', 'meta');
+      })
+      .catch(function (err) {
+        append('', 'meta');
+        append('Tests stopped due to error: ' + ((err && err.message) || err), 'fail');
+      });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', window.runSdkTests);
+  } else {
+    window.runSdkTests();
+  }
+})();
+  </script>
+</body>
+</html>
