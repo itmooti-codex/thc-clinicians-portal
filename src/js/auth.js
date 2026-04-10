@@ -128,28 +128,37 @@
    *   { authenticated: false } — app should show login form
    */
   function init() {
+    console.log('[auth] init() starting');
     // 1. Check for magic link callback
     return handleMagicLinkCallback().then(function (verified) {
       if (verified) {
+        console.log('[auth] magic link verified, session:', session);
         applySession();
         return { authenticated: true };
       }
 
       // 2. Check stored session
       var stored = loadSession();
+      console.log('[auth] stored session:', stored ? { token: stored.token ? stored.token.slice(0, 20) + '...' : null, contactId: stored.contactId, role: stored.role } : null);
       if (!stored || !stored.token) {
+        console.log('[auth] no stored session — showing login');
         return { authenticated: false };
       }
 
       // 3. Validate stored token with server
+      console.log('[auth] validating token with server at:', API_BASE + '/api/auth/session');
       return validateSession(stored.token).then(function (result) {
+        console.log('[auth] validation result:', result);
         if (result.valid && (result.role === 'clinician' || stored.role === 'clinician')) {
           applySession();
+          console.log('[auth] authenticated as clinician');
           return { authenticated: true };
         }
+        console.log('[auth] validation passed but role mismatch — clearing');
         clearSession();
         return { authenticated: false };
-      }).catch(function () {
+      }).catch(function (err) {
+        console.log('[auth] validation failed:', err.message);
         clearSession();
         return { authenticated: false };
       });
