@@ -44,10 +44,10 @@
     var loginEl = u.byId('app-login');
 
     // ── Auth gate: require magic-link login ──
-    console.log('[app] DOMContentLoaded, ClinicianAuth:', !!window.ClinicianAuth);
+
     if (window.ClinicianAuth) {
       window.ClinicianAuth.init().then(function (result) {
-        console.log('[app] auth result:', result);
+
         if (!result.authenticated) {
           // Show login form, hide loading
           if (loading) loading.classList.add('hidden');
