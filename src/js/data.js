@@ -6,21 +6,27 @@
   'use strict';
 
   var config = typeof window !== 'undefined' && window.AppConfig ? window.AppConfig : {};
-  var GRAPHQL_ENDPOINT = 'https://' + (config.SLUG || 'thc') + '.vitalstats.app/api/v1/graphql';
-  var API_KEY = config.API_KEY || '';
+  // API base: in dev, cross-origin to Express server; in prod, same domain
+  var API_BASE = (window.ClinicianAuth && window.ClinicianAuth.API_BASE) || '';
+
+  function authHeaders() {
+    var token = window.ClinicianAuth && window.ClinicianAuth.getToken();
+    var h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    if (token) h['Authorization'] = 'Bearer ' + token;
+    return h;
+  }
 
   function fetchGraphQL(query, variables) {
     variables = variables || {};
-    return fetch(GRAPHQL_ENDPOINT, {
+    return fetch(API_BASE + '/api/clinician/graphql', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Api-Key': API_KEY,
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ query: query, variables: variables }),
     })
-      .then(function (res) { return res.json(); })
+      .then(function (res) {
+        if (res.status === 401) { window.ClinicianAuth && window.ClinicianAuth.logout(); throw new Error('Session expired'); }
+        return res.json();
+      })
       .then(function (json) {
         if (json.errors && json.errors.length) throw new Error(json.errors[0].message || 'GraphQL error');
         return json.data;
@@ -31,7 +37,7 @@
 
   /** Fetch patients (contacts). Returns plain array of objects. */
   function fetchPatients(limit) {
-    var q = 'query getContacts($limit: IntScalar) { getContacts(limit: $limit) { id first_name last_name email sms_number office_phone } }';
+    var q = 'query getContacts($limit: IntScalar) { getContacts(limit: $limit) { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code } }';
     return fetchGraphQL(q, { limit: limit || 200 }).then(function (data) {
       var list = data && data.getContacts;
       return Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
@@ -89,7 +95,7 @@
       '  getContacts(',
       '    query: [ ' + queryParts.join(', ') + ' ],',
       '    limit: $limit',
-      '  ) { id first_name last_name email sms_number office_phone }',
+      '  ) { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code }',
       '}',
     ].join('\n');
     return fetchGraphQL(q, vars).then(function (data) {
@@ -130,7 +136,7 @@
 
   /** Fetch a single contact by ID. */
   function fetchPatientById(id) {
-    var q = 'query getContactById($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { id first_name last_name email sms_number office_phone } }';
+    var q = 'query getContactById($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code } }';
     return fetchGraphQL(q, { id: Number(id) }).then(function (data) {
       var list = data && data.getContacts;
       var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
@@ -175,9 +181,36 @@
     }).catch(function () { return []; });
   }
 
+  /**
+   * Fetch the clinical note for a specific appointment (returns most recent note or null).
+   * Uses Ontraport REST because notes are written via Ontraport API — GraphQL has sync lag.
+   * TODO: Migrate to GraphQL once note creation also uses GraphQL mutations.
+   */
+  function fetchClinicalNoteByAppointment(appointmentId) {
+    var params = 'objectID=10008&range=1&sortDir=desc&sort=' + NOTE_FIELDS.date_created +
+      '&condition=' + encodeURIComponent(
+        JSON.stringify([{ field: { field: NOTE_FIELDS.appointment_id }, op: '=', value: { value: String(appointmentId) } }])
+      );
+    return ontraportRequest('GET', '/objects?' + params).then(function (data) {
+      var list = Array.isArray(data) ? data : (data && data.list) || (data && data.data) || [];
+      if (!list.length) return null;
+      var raw = list[0];
+      return {
+        id: raw.id,
+        title: raw[NOTE_FIELDS.title] || '',
+        content: raw[NOTE_FIELDS.content] || '',
+        author_id: raw[NOTE_FIELDS.author_id],
+        patient_id: raw[NOTE_FIELDS.patient_id],
+        appointment_id: raw[NOTE_FIELDS.appointment_id],
+        created_at: raw[NOTE_FIELDS.date_created] || raw.date,
+        last_modified: raw.dlm || raw[NOTE_FIELDS.date_created] || raw.date
+      };
+    }).catch(function () { return null; });
+  }
+
   /** Fetch scripts for a patient. */
   function fetchScripts(patientId) {
-    var q = 'query getScripts($patient_id: IntScalar!) { getScripts(query: [{ where: { patient_id: $patient_id, _OPERATOR_: eq } }], limit: 100) { id script_status repeats remaining doctor_id patient_id drug_id appointment_id created_at } }';
+    var q = 'query getScripts($patient_id: IntScalar!) { getScripts(query: [{ where: { patient_id: $patient_id, _OPERATOR_: eq } }], limit: 100) { id script_status repeats remaining supply_limit interval_days dosage_instructions condition valid_until doctor_id patient_id drug_id appointment_id created_at } }';
     return fetchGraphQL(q, { patient_id: Number(patientId) }).then(function (data) {
       var list = data && data.getScripts;
       return Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
@@ -186,20 +219,129 @@
 
   /** Fetch items (drugs) for script display. Returns plain array. */
   function fetchItems(limit) {
-    var q = 'query getItems($limit: IntScalar) { getItems(limit: $limit) { id item_name brand type description status retail_price wholesale_price } }';
+    var q = 'query getItems($limit: IntScalar) { getItems(limit: $limit) { id item_name brand type description status retail_price wholesale_price item_image } }';
     return fetchGraphQL(q, { limit: limit || 500 }).then(function (data) {
       var list = data && data.getItems;
       return Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
     });
   }
 
+  /** Enriched item fields for recommendation engine (terpenes, cannabinoids, clinical, financial) */
+  var ENRICHED_ITEM_FIELDS = [
+    'id', 'item_name', 'brand', 'type', 'sub_type', 'description', 'item_image',
+    'status', 'retail_price', 'wholesale_price',
+    'thc', 'cbd', 'cbg', 'cbn', 'cbc', 'psychoactive',
+    'myrcene', 'limonene', 'beta_caryophyllene', 'linalool', 'trans_caryophyllene',
+    'ocimene', 'farnesene', 'alpha_pinene', 'beta_pinene', 'humulene', 'terpinolene',
+    'dominant_terpenes_options_as_text', 'conditions_options_as_text', 'benefits_options_as_text',
+    'paul_rating', 'prioritise', 'high_profit',
+    'pack_size', 'strength_1', 'units_per_pack', 'price_per_mg',
+    'organic', 'origin_country',
+    'expiry', 'expiry_score',
+    'tga_category', 'tga_schedule',
+    'sativa_indica', 'dominance', 'chemovar',
+    'dosage_form', 'cannabis_type', 'dosage_instructions',
+    'gross_profit', 'profit', 'link_to_catalyst_listing'
+  ].join(' ');
+
+  /**
+   * Fetch enriched items for recommendation engine. Includes terpenes, cannabinoids,
+   * clinical, and financial fields. Fetches all in-stock items using offset pagination
+   * in batches of 500 (staying under the 1000-record limit that can cause hangs).
+   * Returns plain array of all matching items.
+   */
+  function fetchEnrichedItems() {
+    var BATCH_SIZE = 500;
+    var q = 'query getEnrichedItems($limit: IntScalar, $offset: IntScalar) { getItems(' +
+      'query: [{ where: { status: "In Stock", _OPERATOR_: eq } }], ' +
+      'limit: $limit, offset: $offset' +
+      ') { ' + ENRICHED_ITEM_FIELDS + ' } }';
+
+    function fetchBatch(offset) {
+      return fetchGraphQL(q, { limit: BATCH_SIZE, offset: offset }).then(function (data) {
+        var list = data && data.getItems;
+        return Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
+      });
+    }
+
+    // Fetch batches sequentially until we get fewer than BATCH_SIZE results
+    var allItems = [];
+    function fetchNext(offset) {
+      return fetchBatch(offset).then(function (batch) {
+        allItems = allItems.concat(batch);
+        if (batch.length >= BATCH_SIZE) {
+          return fetchNext(offset + BATCH_SIZE);
+        }
+        return allItems;
+      });
+    }
+
+    return fetchNext(0);
+  }
+
+  /**
+   * Fetch patient intake data via GraphQL.
+   * Returns contact object with friendly field names.
+   */
+  var INTAKE_QUERY_FIELDS = [
+    // Demographics
+    'id', 'first_name', 'last_name', 'email', 'sms_number', 'birthday', 'age',
+    'sex', 'Weight', 'address', 'address_2', 'city', 'state_au', 'zip_code',
+    // Conditions (booleans)
+    'chronic_non_cancer_pain', 'anxiety_disorder', 'depression', 'ptsd', 'adhd',
+    'sleep_disorder', 'epilepsy', 'fibromyalgia', 'arthritis', 'migraines',
+    'chemotherapy_induced_nausea_and_vomiting', 'endometriosis',
+    'crohns_ulcerative_colitis_ibs_gut', 'multiple_sclerosis', 'inflammation',
+    'neuropathic_pain', 'cancer', 'parkinson_s_disease', 'loss_of_appetite',
+    'autism_spectrum_disorder', 'glaucoma', 'chronic_illness', 'palliative_care',
+    'headaches', 'other_condition', 'condition_details',
+    // Safety / Eligibility
+    'i_am_currently_pregnant_or_breastfeeding',
+    'i_have_a_history_of_schizophrenia_bipolar_and_or_psychosis',
+    'history_of_opioid_replacement_therapy_and_or_drug_dependency',
+    'i_have_an_allergy_to_cannabinoids', 'i_suffer_from_chronic_liver_disease',
+    // Clinical
+    'Severity', 'Experience_Level', 'allergies_information',
+    'list_your_medications_supplements', 'are_you_currently_taking_any_medications_or_supplements',
+    'mental_health_history', 'previous_treatment', 'treatment_outcome', 'long_term_condition',
+    // Medicare
+    'medicare_name', 'medicare_number', 'issue_number', 'irn', 'ihi_number',
+    'concession_card_holder',
+    // Lifestyle
+    'Drives_Regularly', 'Heavy_Machinery', 'Competitive_Sport', 'Sport_Type',
+    'Shift_Work', 'pregnancy_or_fertility',
+    // Product Preferences
+    'product_preference', 'effect_preference', 'lineage_preference',
+    'Budget_Range', 'budget_important', 'discretion_important',
+    'flowers', 'oils', 'vapes', 'edibles', 'prev_cannabis_use',
+    // Consent
+    'terms_conditions', 'declaration_i_have_answered_truthfully',
+    'application_status', 'time_signed_terms',
+    // Other
+    'contact_comment', 'last_feedback_rating'
+  ].join(' ');
+
+  function fetchPatientIntake(patientId) {
+    var q = 'query getContactIntake($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { ' + INTAKE_QUERY_FIELDS + ' } }';
+    return fetchGraphQL(q, { id: Number(patientId) }).then(function (data) {
+      var list = data && data.getContacts;
+      var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
+      return arr.length ? arr[0] : {};
+    });
+  }
+
+  // Update patient intake fields on Contact record (objectID 0)
+  function updatePatientIntake(patientId, fields) {
+    var payload = { objectID: 0, id: patientId };
+    for (var key in fields) {
+      payload[key] = fields[key];
+    }
+    return ontraportRequest('PUT', '/objects', payload);
+  }
+
   // ── Ontraport API ───────────────────────────────────────────
 
-  // In local dev, Vite proxies /ontraport-api → https://api.ontraport.com/1
-  var IS_DEV = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  var ONTRAPORT_API = IS_DEV ? '/ontraport-api' : 'https://api.ontraport.com/1';
-  var ONTRAPORT_APPID = '2_266635_xuw5tJVbm';
-  var ONTRAPORT_KEY = 'uV22NoeXQtVD2bH';
+  // All Ontraport calls routed through authenticated server-side proxy
 
   // Ontraport field mapping for Timeslots (objectID 10000)
   var TIMESLOT_FIELDS = {
@@ -233,17 +375,56 @@
   var APPT_STATUS = { Booked: '138', Paid: '131', Completed: '150', Cancelled: '129', Rescheduled: '197' };
   var APPT_TYPE = { 'Initial Consultation': '237', 'Follow Up Consultation': '236', 'In Patient Consultation': '770' };
 
-  /** POST to Ontraport API */
+  // Ontraport field mapping for Scripts (objectID 10002)
+  var SCRIPT_FIELDS = {
+    doctor_id: 'f2208',
+    patient_id: 'f2207',
+    drug_id: 'f2232',
+    appointment_id: 'f2277',
+    script_status: 'f2205',
+    repeats: 'f2206',
+    remaining: 'f2265',
+    interval_days: 'f2741',
+    dosage_instructions: 'f2854',
+    additional_instructions: 'f2855',
+    dispense_qty: 'f2858',
+    valid_until: 'f2859',
+    supply_limit: 'f3093',
+    condition: 'f2825',
+    route: 'f2856',
+    doctor_notes_pharmacy: 'f2809',
+  };
+
+  var SCRIPT_STATUS = {
+    'Draft': '278',
+    'To Be Processed': '678',
+    'Open': '145',
+    'Fulfilled': '144',
+    'Stock Issue': '692',
+    'Archived': '332',
+    'External Processing': '766',
+    'Cancelled': '143'
+  };
+
+  // Ontraport field mapping for Clinical Notes (objectID 10008)
+  var NOTE_FIELDS = {
+    title: 'f3082',
+    content: 'f3083',
+    author_id: 'f3084',
+    patient_id: 'f3085',
+    appointment_id: 'f3086',
+    date_created: 'f3087',
+    upload: 'f3092'
+  };
+
+  /** Ontraport API call via authenticated server-side proxy */
   function ontraportRequest(method, endpoint, body) {
-    return fetch(ONTRAPORT_API + endpoint, {
-      method: method,
-      headers: {
-        'Api-Appid': ONTRAPORT_APPID,
-        'Api-Key': ONTRAPORT_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
+    return fetch(API_BASE + '/api/clinician/ontraport', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ method: method, endpoint: endpoint, body: body }),
     }).then(function (res) {
+      if (res.status === 401) { window.ClinicianAuth && window.ClinicianAuth.logout(); throw new Error('Session expired'); }
       if (!res.ok) throw new Error('Ontraport API error: ' + res.status);
       return res.json();
     }).then(function (json) {
@@ -327,6 +508,95 @@
     return ontraportRequest('DELETE', '/objects?id=' + encodeURIComponent(String(id)) + '&objectID=10000');
   }
 
+  /**
+   * Create a new script via Ontraport API (objectID 10002).
+   * scriptData: { doctor_id, patient_id, drug_id, appointment_id, repeats, dosage_instructions, condition }
+   * Defaults: status=Open, repeats=3, remaining=repeats, interval_days=7, dispense_qty=1
+   */
+  function createScript(scriptData) {
+    var repeats = scriptData.repeats != null ? scriptData.repeats : 3;
+    var payload = { objectID: 10002 };
+    payload[SCRIPT_FIELDS.doctor_id] = scriptData.doctor_id;
+    payload[SCRIPT_FIELDS.patient_id] = scriptData.patient_id;
+    payload[SCRIPT_FIELDS.drug_id] = scriptData.drug_id;
+    if (scriptData.appointment_id) payload[SCRIPT_FIELDS.appointment_id] = scriptData.appointment_id;
+    payload[SCRIPT_FIELDS.script_status] = SCRIPT_STATUS[scriptData.status] || SCRIPT_STATUS['Draft'];
+    payload[SCRIPT_FIELDS.repeats] = repeats;
+    payload[SCRIPT_FIELDS.remaining] = repeats;
+    payload[SCRIPT_FIELDS.interval_days] = scriptData.interval_days || 7;
+    payload[SCRIPT_FIELDS.dispense_qty] = scriptData.dispense_qty || 1;
+    payload[SCRIPT_FIELDS.supply_limit] = scriptData.supply_limit || repeats;
+    if (scriptData.dosage_instructions) payload[SCRIPT_FIELDS.dosage_instructions] = scriptData.dosage_instructions;
+    if (scriptData.additional_instructions) payload[SCRIPT_FIELDS.additional_instructions] = scriptData.additional_instructions;
+    if (scriptData.condition) payload[SCRIPT_FIELDS.condition] = scriptData.condition;
+    if (scriptData.route) payload[SCRIPT_FIELDS.route] = scriptData.route;
+    if (scriptData.doctor_notes_pharmacy) payload[SCRIPT_FIELDS.doctor_notes_pharmacy] = scriptData.doctor_notes_pharmacy;
+    // Valid until: default 6 months from now
+    if (scriptData.valid_until) {
+      payload[SCRIPT_FIELDS.valid_until] = scriptData.valid_until;
+    } else {
+      var sixMonths = new Date();
+      sixMonths.setMonth(sixMonths.getMonth() + 6);
+      payload[SCRIPT_FIELDS.valid_until] = sixMonths.toISOString().split('T')[0];
+    }
+    return ontraportRequest('POST', '/objects', payload);
+  }
+
+  /**
+   * Create a clinical note via Ontraport API (objectID 10008).
+   * noteData: { title, content, author_id, patient_id, appointment_id }
+   */
+  function createClinicalNote(noteData) {
+    var payload = { objectID: 10008 };
+    payload[NOTE_FIELDS.title] = noteData.title || '';
+    payload[NOTE_FIELDS.content] = noteData.content || '';
+    payload[NOTE_FIELDS.author_id] = noteData.author_id;
+    payload[NOTE_FIELDS.patient_id] = noteData.patient_id;
+    if (noteData.appointment_id) payload[NOTE_FIELDS.appointment_id] = noteData.appointment_id;
+    payload[NOTE_FIELDS.date_created] = Math.floor(Date.now() / 1000);
+    return ontraportRequest('POST', '/objects', payload);
+  }
+
+  /** Update an existing script via Ontraport API (objectID 10002). */
+  function updateScript(scriptId, scriptData) {
+    var payload = { id: scriptId, objectID: 10002 };
+    if (scriptData.status != null) payload[SCRIPT_FIELDS.script_status] = SCRIPT_STATUS[scriptData.status] || scriptData.status;
+    if (scriptData.repeats != null) { payload[SCRIPT_FIELDS.repeats] = scriptData.repeats; payload[SCRIPT_FIELDS.remaining] = scriptData.repeats; }
+    if (scriptData.interval_days != null) payload[SCRIPT_FIELDS.interval_days] = scriptData.interval_days;
+    if (scriptData.dispense_qty != null) payload[SCRIPT_FIELDS.dispense_qty] = scriptData.dispense_qty;
+    if (scriptData.dosage_instructions != null) payload[SCRIPT_FIELDS.dosage_instructions] = scriptData.dosage_instructions;
+    if (scriptData.condition != null) payload[SCRIPT_FIELDS.condition] = scriptData.condition;
+    if (scriptData.doctor_notes_pharmacy != null) payload[SCRIPT_FIELDS.doctor_notes_pharmacy] = scriptData.doctor_notes_pharmacy;
+    if (scriptData.valid_until != null) payload[SCRIPT_FIELDS.valid_until] = scriptData.valid_until;
+    if (scriptData.supply_limit != null) payload[SCRIPT_FIELDS.supply_limit] = scriptData.supply_limit;
+    return ontraportRequest('PUT', '/objects', payload);
+  }
+
+  /** Delete a single script via Ontraport API (objectID 10002). */
+  function deleteScript(scriptId) {
+    return fetch(ONTRAPORT_API + '/object?objectID=10002&id=' + encodeURIComponent(scriptId), {
+      method: 'DELETE',
+      headers: {
+        'Api-Appid': ONTRAPORT_APPID,
+        'Api-Key': ONTRAPORT_KEY,
+      },
+    }).then(function (res) {
+      if (!res.ok) throw new Error('Ontraport API error: ' + res.status);
+      return res.json();
+    }).then(function (json) {
+      if (json.code !== 0) throw new Error('Ontraport error code: ' + json.code);
+      return json.data;
+    });
+  }
+
+  /** Update an existing clinical note via Ontraport API (objectID 10008). */
+  function updateClinicalNote(noteId, noteData) {
+    var payload = { id: noteId, objectID: 10008 };
+    if (noteData.content != null) payload[NOTE_FIELDS.content] = noteData.content;
+    if (noteData.title != null) payload[NOTE_FIELDS.title] = noteData.title;
+    return ontraportRequest('PUT', '/objects', payload);
+  }
+
   // ── Expose ─────────────────────────────────────────────────
 
   window.AppData = {
@@ -337,11 +607,50 @@
     fetchClinicalNotes: fetchClinicalNotes,
     fetchScripts: fetchScripts,
     fetchItems: fetchItems,
+    fetchEnrichedItems: fetchEnrichedItems,
+    fetchPatientIntake: fetchPatientIntake,
+    updatePatientIntake: updatePatientIntake,
     createPatient: createPatient,
     createAppointment: createAppointment,
+    createScript: createScript,
+    updateScript: updateScript,
+    deleteScript: deleteScript,
+    createClinicalNote: createClinicalNote,
+    updateClinicalNote: updateClinicalNote,
+    fetchClinicalNoteByAppointment: fetchClinicalNoteByAppointment,
     fetchTimeslots: fetchTimeslots,
     createTimeslot: createTimeslot,
     updateTimeslot: updateTimeslot,
     deleteTimeslot: deleteTimeslot,
+    SCRIPT_STATUS: SCRIPT_STATUS,
+    callGemini: callGemini,
   };
+
+  // ── Gemini Flash API (via authenticated server-side proxy) ──
+  function callGemini(prompt) {
+    return fetch(API_BASE + '/api/clinician/gemini', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ prompt: prompt }),
+    }).then(function (res) {
+      if (res.status === 401) { window.ClinicianAuth && window.ClinicianAuth.logout(); throw new Error('Session expired'); }
+      if (!res.ok) throw new Error('Gemini API error: ' + res.status);
+      return res.json();
+    }).then(function (json) {
+      if (!json.candidates || !json.candidates[0]) throw new Error('No response from Gemini');
+      var candidate = json.candidates[0];
+      if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+        console.warn('Gemini finish reason:', candidate.finishReason);
+      }
+      // Concatenate all parts (Gemini can split response across multiple parts)
+      var text = '';
+      if (candidate.content && candidate.content.parts) {
+        candidate.content.parts.forEach(function (part) {
+          if (part.text) text += part.text;
+        });
+      }
+      if (!text) throw new Error('Empty response from Gemini (finishReason: ' + (candidate.finishReason || 'unknown') + ')');
+      return text;
+    });
+  }
 })();

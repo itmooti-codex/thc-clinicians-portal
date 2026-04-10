@@ -14,12 +14,13 @@
     if (window.__ONTRAPORT_MOCK__) {
       Object.assign(window.AppConfig, {
         SLUG: 'thc',
-        API_KEY: window.__MOCK_API_KEY__ || '',
-        CONTACT_ID: window.__MOCK_CONTACT_ID__ || '',
         DEBUG: true,
       });
     }
   </script>
+
+  <!-- Auth module (must load before config.js) -->
+  <script src="../src/js/auth.js"></script>
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -45,6 +46,20 @@
 
   <!-- ========== SIMULATED ONTRAPORT BODY ========== -->
   <div id="app-root">
+    <!-- ── Login ───────────────────────────────────────── -->
+    <div id="app-login" class="app-login hidden">
+      <div class="login-card">
+        <h1 class="login-title">The Happy Clinic</h1>
+        <p class="login-subtitle">Clinician Portal</p>
+        <form id="login-form" autocomplete="on">
+          <label for="login-email" class="login-label">Email address</label>
+          <input type="email" id="login-email" class="login-input" placeholder="you@thehappyclinic.com.au" required autocomplete="email">
+          <button type="submit" id="login-submit" class="btn btn-primary login-btn">Send Magic Link</button>
+        </form>
+        <div id="login-message" class="login-message hidden"></div>
+      </div>
+    </div>
+
     <div id="app-loading" class="app-loading">
       <div class="loading-spinner"></div>
       <p class="loading-text">Connecting to The Happy Clinic...</p>
@@ -77,10 +92,22 @@
           <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           My Timeslots
         </button>
+        <button class="tab-btn" data-tab="formulary">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          Formulary
+        </button>
         <button type="button" class="btn btn-icon tab-bar-settings" id="page-settings-cog" title="Page settings" aria-label="Page settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </nav>
+
+      <!-- Timeslot alert banner (shown when doctor has <2 future timeslots) -->
+      <div id="timeslot-alert-banner" class="alert-banner alert-danger hidden">
+        <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>You have less than 2 timeslots booked for the future. Please consider <a href="#" id="timeslot-alert-link">adding new timeslots</a>.</span>
+        <button class="alert-dismiss" id="btn-dismiss-timeslot-alert" title="Dismiss">&times;</button>
+      </div>
+
       <div id="view-patients" class="view">
         <div class="view-toolbar">
           <div class="search-container">
@@ -100,7 +127,7 @@
       <div id="view-patient-detail" class="view hidden">
         <button class="btn-back" id="btn-back-patients">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="15 18 9 12 15 6"/></svg>
-          Back to Patients
+          Back to Patient Search
         </button>
         <div class="patient-hero" id="patient-hero"></div>
         <nav class="detail-tab-bar" id="detail-tabs">
@@ -117,14 +144,294 @@
           <div id="patient-appointments-empty" class="empty-state-sm hidden">No appointments found</div>
         </div>
         <div id="detail-notes" class="detail-panel hidden">
-          <h3 class="detail-heading">Clinical Notes</h3>
-          <div id="patient-notes-list" class="record-list"></div>
-          <div id="patient-notes-empty" class="empty-state-sm hidden">No clinical notes found</div>
+          <div class="detail-toolbar">
+            <h3 class="detail-heading">Clinical Notes</h3>
+            <button class="btn btn-primary btn-sm" id="btn-add-note">+ New Note</button>
+          </div>
+          <div id="patient-notes-list" class="notes-timeline"></div>
+          <div id="patient-notes-empty" class="empty-state-sm hidden">
+            <p>No clinical notes yet</p>
+            <button class="btn btn-primary btn-sm" id="btn-add-note-empty">Create First Note</button>
+          </div>
         </div>
         <div id="detail-scripts" class="detail-panel hidden">
-          <h3 class="detail-heading">Scripts / Prescriptions</h3>
+          <h3 class="detail-heading">Scripts</h3>
           <div id="patient-scripts-list" class="record-list"></div>
           <div id="patient-scripts-empty" class="empty-state-sm hidden">No scripts found</div>
+        </div>
+      </div>
+      <!-- ═══ APPOINTMENT WORKSPACE ═══ -->
+      <div id="view-appointment-workspace" class="view hidden">
+        <button class="btn-back" id="btn-back-from-workspace">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="15 18 9 12 15 6"/></svg> Back
+        </button>
+        <div class="workspace-header" id="workspace-header"></div>
+
+        <!-- Patient-level tabs (persistent across appointment context) -->
+        <nav class="workspace-patient-tabs" id="workspace-patient-tabs">
+          <button class="wp-tab-btn" data-wp-tab="wp-appointments">Appointments</button>
+          <button class="wp-tab-btn" data-wp-tab="wp-notes">Clinical Notes</button>
+          <button class="wp-tab-btn" data-wp-tab="wp-scripts">Scripts</button>
+        </nav>
+        <div id="wp-tab-panels">
+          <div id="wp-appointments" class="wp-tab-panel hidden">
+            <div id="wp-appointments-list" class="record-list"></div>
+            <div id="wp-appointments-empty" class="empty-state-sm hidden">No appointments found</div>
+          </div>
+          <div id="wp-notes" class="wp-tab-panel hidden">
+            <div id="wp-notes-list" class="notes-timeline"></div>
+            <div id="wp-notes-empty" class="empty-state-sm hidden">No clinical notes yet</div>
+          </div>
+          <div id="wp-scripts" class="wp-tab-panel hidden">
+            <div id="wp-scripts-list" class="record-list"></div>
+            <div id="wp-scripts-empty" class="empty-state-sm hidden">No scripts found</div>
+          </div>
+        </div>
+
+        <!-- Workspace Jump Nav -->
+        <nav class="workspace-jump-nav" id="workspace-jump-nav">
+          <button class="jump-btn" data-jump="workspace-note-content">Clinical Note</button>
+          <button class="jump-btn jump-btn-highlight" data-jump="workspace-prescribe-section">Prescribe</button>
+        </nav>
+
+        <!-- Three-column workspace: Clinical Note | Intake Details | Scripts -->
+        <div class="workspace-three-col">
+          <!-- Left: Clinical Note Editor -->
+          <div class="workspace-section workspace-col workspace-note-section">
+            <div class="workspace-section-header">
+              <div class="workspace-section-title">Clinical Note</div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-sm btn-primary" id="btn-generate-clinical-note">Draft Note</button>
+                <span class="note-status-badge" id="workspace-note-status"></span>
+              </div>
+            </div>
+            <div class="workspace-col-body">
+              <div id="workspace-note-content" class="workspace-editor" contenteditable="true" data-placeholder="Document your clinical observations, assessment, and plan..."></div>
+              <div class="workspace-note-footer">
+                <span class="note-last-saved" id="workspace-note-saved"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Middle: Full Intake Details (read-only) -->
+          <div class="workspace-section workspace-col workspace-intake-section">
+            <div class="workspace-section-title">Full Intake Details</div>
+            <div class="workspace-col-body">
+              <div id="workspace-intake" class="intake-summary"></div>
+            </div>
+          </div>
+
+          <!-- Right: Scripts from this visit -->
+          <div class="workspace-section workspace-col">
+            <div class="workspace-section-title">Scripts from this visit</div>
+            <div class="workspace-col-body">
+              <div id="workspace-scripts" class="record-list"></div>
+              <div id="workspace-scripts-empty" class="empty-state-sm">No scripts yet for this appointment.</div>
+            </div>
+          </div>
+        </div>
+        <details class="workspace-section workspace-collapsible" open>
+          <summary class="workspace-section-title">Patient Profile &amp; Recommendations</summary>
+          <div class="workspace-collapsible-body">
+            <div id="workspace-editable-intake"></div>
+            <div id="workspace-intake-status" class="note-last-saved"></div>
+          </div>
+        </details>
+        <details class="workspace-section workspace-collapsible" id="workspace-prescribe-section">
+          <summary class="workspace-section-title">Prescribe</summary>
+          <div class="prescribe-layout">
+            <div class="prescribe-main">
+              <div class="prescribe-section" id="prescribe-search-section">
+                <div id="prescribe-scoring-status" class="scoring-status hidden">
+                  <div class="loading-spinner loading-spinner-sm"></div><span>Scoring products for this patient...</span>
+                </div>
+                  <div class="search-container" style="margin-bottom:12px;">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" id="prescribe-product-search" class="search-input" placeholder="Search by name, brand, or strain...">
+                  </div>
+                  <div id="prescribe-filters">
+                    <div class="filter-group" data-filter-group="type">
+                      <div class="filter-group-pills">
+                        <button class="filter-pill" data-value="Flower"><span class="pill-icon">&#127807;</span> Flower</button>
+                        <button class="filter-pill" data-value="Oil"><span class="pill-icon">&#128167;</span> Oil</button>
+                        <button class="filter-pill" data-value="Vape"><span class="pill-icon">&#128168;</span> Vape</button>
+                        <button class="filter-pill" data-value="Edible"><span class="pill-icon">&#127850;</span> Edible</button>
+                        <button class="filter-pill" data-value="Extract"><span class="pill-icon">&#129514;</span> Extract</button>
+                        <button class="filter-pill" data-value="Accessory"><span class="pill-icon">&#9881;&#65039;</span> Accessory</button>
+                      </div>
+                    </div>
+                    <div class="advanced-filters">
+                      <button class="advanced-filters-toggle" id="btn-toggle-advanced-filters">
+                        <svg class="toggle-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>
+                        More Filters <span class="advanced-filter-count hidden" id="advanced-filter-count">0</span>
+                      </button>
+                      <div class="advanced-filters-body hidden" id="advanced-filters-body">
+                        <div class="filter-panel">
+                          <div class="filter-group" data-filter-group="dominance">
+                            <div class="filter-group-label">Dominance <span class="filter-count hidden">0</span></div>
+                            <div class="filter-group-pills">
+                              <button class="filter-pill" data-value="THC-dominant"><span class="pill-icon">&#9650;</span> THC-dominant</button>
+                              <button class="filter-pill" data-value="CBD-dominant"><span class="pill-icon">&#128994;</span> CBD-dominant</button>
+                              <button class="filter-pill" data-value="Balanced"><span class="pill-icon">&#9878;&#65039;</span> Balanced</button>
+                              <button class="filter-pill" data-value="Broad-spectrum"><span class="pill-icon">&#127752;</span> Broad-spectrum</button>
+                              <button class="filter-pill" data-value="Full-spectrum"><span class="pill-icon">&#128995;</span> Full-spectrum</button>
+                              <button class="filter-pill" data-value="CBG-dominant"><span class="pill-icon">&#128310;</span> CBG-dominant</button>
+                            </div>
+                          </div>
+                          <div class="filter-group" data-filter-group="lineage">
+                            <div class="filter-group-label">Lineage <span class="filter-count hidden">0</span></div>
+                            <div class="filter-group-pills">
+                              <button class="filter-pill" data-value="Sativa"><span class="pill-icon">&#9728;&#65039;</span> Sativa</button>
+                              <button class="filter-pill" data-value="Indica"><span class="pill-icon">&#127769;</span> Indica</button>
+                              <button class="filter-pill" data-value="Balanced"><span class="pill-icon">&#9878;&#65039;</span> Balanced</button>
+                            </div>
+                          </div>
+                          <div class="filter-group" data-filter-group="subtype">
+                            <div class="filter-group-label">Sub Type <span class="filter-count hidden">0</span></div>
+                            <div class="filter-group-pills">
+                              <button class="filter-pill" data-value="Budget"><span class="pill-icon">&#128176;</span> Budget</button>
+                              <button class="filter-pill" data-value="Core"><span class="pill-icon">&#11088;</span> Core</button>
+                              <button class="filter-pill" data-value="Craft"><span class="pill-icon">&#10024;</span> Craft</button>
+                            </div>
+                          </div>
+                          <div class="filter-group" data-filter-group="price">
+                            <div class="filter-group-label">Price Range</div>
+                            <div class="filter-price-row">
+                              <div class="price-input-wrap"><span class="price-prefix">$</span><input type="number" id="filter-price-min" class="price-input" placeholder="0" min="0" max="1000"></div>
+                              <span class="price-sep">&ndash;</span>
+                              <div class="price-input-wrap"><span class="price-prefix">$</span><input type="number" id="filter-price-max" class="price-input" placeholder="890" min="0" max="1000"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="filter-bar">
+                      <button class="btn btn-sm btn-ghost" id="btn-clear-filters">Clear all filters</button>
+                      <div class="filter-bar-right">
+                        <label class="sort-label" for="product-sort">Sort by</label>
+                        <select class="sort-select" id="product-sort">
+                          <option value="relevance">Best Match</option>
+                          <option value="price-asc">Price: Low → High</option>
+                          <option value="price-desc">Price: High → Low</option>
+                          <option value="thc-desc">THC: High → Low</option>
+                          <option value="cbd-desc">CBD: High → Low</option>
+                          <option value="value-asc">Best Value ($/mg)</option>
+                          <option value="rating-desc">Rating: Best First</option>
+                          <option value="freshness-desc">Freshest First</option>
+                        </select>
+                        <span class="filter-result-count" id="filter-result-count"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="prescribe-search-results" class="product-grid"></div>
+                  <div id="prescribe-search-empty" class="empty-state-sm hidden">No products match.</div>
+              </div>
+            </div>
+            <aside class="prescribe-sidebar" id="prescribe-cart">
+              <div class="cart-header"><h4 class="cart-title">Selected</h4><span class="cart-count" id="cart-count">0</span></div>
+              <div class="cart-items" id="cart-items"><div class="cart-empty">Select products to add.</div></div>
+              <div class="cart-footer" id="cart-footer" style="display:none;">
+                <button class="btn btn-primary btn-block" id="btn-create-scripts">Create Scripts</button>
+              </div>
+            </aside>
+          </div>
+        </details>
+      </div>
+      <!-- ═══ FORMULARY VIEW ═══ -->
+      <div id="view-formulary" class="view hidden">
+        <div class="view-toolbar">
+          <h2 class="view-title" style="margin:0">Product Formulary</h2>
+        </div>
+        <div class="formulary-toolbar">
+          <div class="search-container" style="flex:1">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="formulary-search" class="search-input" placeholder="Search by name, brand, or strain...">
+          </div>
+        </div>
+        <div id="formulary-filters">
+          <div class="filter-group" data-filter-group="f-type">
+            <div class="filter-group-pills">
+              <button class="filter-pill" data-value="Flower"><span class="pill-icon">&#127807;</span> Flower</button>
+              <button class="filter-pill" data-value="Oil"><span class="pill-icon">&#128167;</span> Oil</button>
+              <button class="filter-pill" data-value="Vape"><span class="pill-icon">&#128168;</span> Vape</button>
+              <button class="filter-pill" data-value="Edible"><span class="pill-icon">&#127850;</span> Edible</button>
+              <button class="filter-pill" data-value="Extract"><span class="pill-icon">&#129514;</span> Extract</button>
+            </div>
+          </div>
+          <div class="advanced-filters">
+            <button class="advanced-filters-toggle" id="btn-toggle-formulary-adv-filters">
+              <svg class="toggle-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>
+              More Filters <span class="advanced-filter-count hidden" id="formulary-adv-filter-count">0</span>
+            </button>
+            <div class="advanced-filters-body hidden" id="formulary-adv-filters-body">
+              <div class="filter-panel">
+                <div class="filter-group" data-filter-group="f-dominance">
+                  <div class="filter-group-label">Dominance</div>
+                  <div class="filter-group-pills">
+                    <button class="filter-pill" data-value="THC-dominant"><span class="pill-icon">&#9650;</span> THC-dominant</button>
+                    <button class="filter-pill" data-value="CBD-dominant"><span class="pill-icon">&#128994;</span> CBD-dominant</button>
+                    <button class="filter-pill" data-value="Balanced"><span class="pill-icon">&#9878;&#65039;</span> Balanced</button>
+                    <button class="filter-pill" data-value="Broad-spectrum"><span class="pill-icon">&#127752;</span> Broad-spectrum</button>
+                    <button class="filter-pill" data-value="Full-spectrum"><span class="pill-icon">&#128995;</span> Full-spectrum</button>
+                  </div>
+                </div>
+                <div class="filter-group" data-filter-group="f-lineage">
+                  <div class="filter-group-label">Lineage</div>
+                  <div class="filter-group-pills">
+                    <button class="filter-pill" data-value="Sativa"><span class="pill-icon">&#9728;&#65039;</span> Sativa</button>
+                    <button class="filter-pill" data-value="Indica"><span class="pill-icon">&#127769;</span> Indica</button>
+                    <button class="filter-pill" data-value="Balanced"><span class="pill-icon">&#9878;&#65039;</span> Balanced</button>
+                  </div>
+                </div>
+                <div class="filter-group" data-filter-group="f-subtype">
+                  <div class="filter-group-label">Sub Type</div>
+                  <div class="filter-group-pills">
+                    <button class="filter-pill" data-value="Budget"><span class="pill-icon">&#128176;</span> Budget</button>
+                    <button class="filter-pill" data-value="Core"><span class="pill-icon">&#11088;</span> Core</button>
+                    <button class="filter-pill" data-value="Craft"><span class="pill-icon">&#10024;</span> Craft</button>
+                  </div>
+                </div>
+                <div class="filter-group" data-filter-group="f-price">
+                  <div class="filter-group-label">Price Range</div>
+                  <div class="filter-price-row">
+                    <div class="price-input-wrap"><span class="price-prefix">$</span><input type="number" id="f-filter-price-min" class="price-input" placeholder="0" min="0" max="1000"></div>
+                    <span class="price-sep">&ndash;</span>
+                    <div class="price-input-wrap"><span class="price-prefix">$</span><input type="number" id="f-filter-price-max" class="price-input" placeholder="890" min="0" max="1000"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <button class="btn btn-sm btn-ghost" id="btn-clear-formulary-filters">Clear all filters</button>
+            <div class="filter-bar-right">
+              <label class="sort-label" for="formulary-sort">Sort by</label>
+              <select class="sort-select" id="formulary-sort">
+                <option value="name-asc">Name: A-Z</option>
+                <option value="price-asc">Price: Low to High</option>
+                <option value="price-desc">Price: High to Low</option>
+                <option value="thc-desc">THC: High to Low</option>
+                <option value="cbd-desc">CBD: High to Low</option>
+                <option value="value-asc">Best Value ($/mg)</option>
+                <option value="rating-desc">Rating: Best First</option>
+                <option value="freshness-desc">Freshest First</option>
+              </select>
+              <span class="filter-result-count" id="formulary-result-count"></span>
+            </div>
+          </div>
+        </div>
+        <div id="formulary-results" class="product-grid"></div>
+        <div id="formulary-empty" class="empty-state-sm hidden">No products match your filters.</div>
+      </div>
+
+      <!-- Item Detail View -->
+      <div id="view-item-detail" class="view hidden">
+        <button class="btn-back" id="btn-back-from-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="15 18 9 12 15 6"/></svg> Back
+        </button>
+        <div class="item-detail-layout">
+          <div class="item-detail-main" id="item-detail-main"></div>
+          <aside class="item-detail-sidebar" id="item-detail-sidebar"></aside>
         </div>
       </div>
       <div id="view-appointments" class="view hidden">
@@ -239,6 +546,63 @@
       </div>
     </div>
     <!-- Add Patient Modal -->
+    <!-- Add Clinical Note Modal -->
+    <div id="modal-add-note" class="modal-overlay hidden">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2 class="modal-title">New Clinical Note</h2>
+          <button class="modal-close" data-close-modal="modal-add-note">&times;</button>
+        </div>
+        <form id="form-add-note" class="modal-body">
+          <input type="hidden" id="note-patient-id">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="note-type">Note Type</label>
+              <div class="input-wrapper">
+                <select id="note-type">
+                  <option value="Consultation Note">Consultation Note</option>
+                  <option value="Follow-up Note">Follow-up Note</option>
+                  <option value="Phone Consultation">Phone Consultation</option>
+                  <option value="General Note">General Note</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="note-appointment">Linked Appointment</label>
+              <div class="input-wrapper">
+                <select id="note-appointment"><option value="">None (standalone note)</option></select>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="note-title">Title *</label>
+            <div class="input-wrapper"><input type="text" id="note-title" required placeholder="e.g. Initial Assessment, Pain Management Review"></div>
+          </div>
+          <div class="form-group">
+            <label for="note-content">Clinical Note *</label>
+            <div class="input-wrapper"><textarea id="note-content" rows="8" required placeholder="Document your clinical observations, assessment, and plan..."></textarea></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-add-note">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-note">Save Note</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <!-- Create Scripts Modal -->
+    <div id="modal-create-scripts" class="modal-overlay hidden">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2 class="modal-title">Create Scripts</h2>
+          <button class="modal-close" data-close-modal="modal-create-scripts">&times;</button>
+        </div>
+        <div class="modal-body" id="create-scripts-body"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-create-scripts">Cancel</button>
+          <button type="button" class="btn btn-primary" id="btn-confirm-scripts">Confirm &amp; Create</button>
+        </div>
+      </div>
+    </div>
     <div id="modal-add-patient" class="modal-overlay hidden">
       <div class="modal">
         <div class="modal-header">
@@ -346,7 +710,11 @@
   <script src="../src/js/config.js"></script>
   <script src="../src/js/utils.js"></script>
   <script src="../src/js/vitalsync.js"></script>
+  <script src="../src/js/science-data.js"></script>
   <script src="../src/js/data.js"></script>
+  <script src="../src/js/recommend.js"></script>
+  <script src="../src/js/similar.js"></script>
+  <script src="../src/js/prescribe.js"></script>
   <script src="./test-mock.js"></script>
   <script src="../src/js/app.js"></script>
 </body>

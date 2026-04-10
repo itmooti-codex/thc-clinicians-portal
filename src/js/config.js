@@ -8,9 +8,8 @@
 
   var config = window.AppConfig;
 
-  // Defaults — overridden by Ontraport header code or dev mock data
+  // Defaults — CONTACT_ID set by auth.js from JWT before config.js loads
   config.SLUG = config.SLUG || 'thc';
-  config.API_KEY = config.API_KEY || '';
   config.CONTACT_ID = config.CONTACT_ID || '';
   config.DEBUG = config.DEBUG || false;
 
