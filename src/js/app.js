@@ -1286,18 +1286,11 @@
     var timeStr = appt.appointment_time ? formatTime(appt.appointment_time) : '';
     var chip = getStatusChip(appt.status || '');
     var fee = appt.fee_paid ? u.formatCurrency(appt.fee_paid) : '';
-    var url = appt.unique_id ? 'https://app.thehappy.clinic/clinician/appointments/' + appt.unique_id : '';
-
     return (
       '<div class="record-card record-card-clickable appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '" style="cursor:pointer">' +
         '<div class="record-card-header">' +
           '<span class="record-card-title">' + u.escapeHtml(appt.type || 'Appointment') + '</span>' +
-          '<div style="display:flex;align-items:center;gap:6px">' +
-            chip +
-            (url ? '<a href="' + url + '" target="_blank" class="btn-icon-sm" title="Open in clinic system" onclick="event.stopPropagation()">' +
-              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
-            '</a>' : '') +
-          '</div>' +
+          chip +
         '</div>' +
         '<div class="record-card-body">' +
           '<p>' + dateStr + (timeStr ? ' at ' + timeStr : '') + '</p>' +
@@ -1388,18 +1381,12 @@
     var timeStr = appt.appointment_time ? formatTime(appt.appointment_time) : '';
     var chip = getStatusChip(appt.status || '');
     var patientName = getPatientName(appt.patient_id);
-    var url = appt.unique_id ? 'https://app.thehappy.clinic/clinician/appointments/' + appt.unique_id : '';
 
     return (
       '<div class="record-card record-card-clickable appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '" style="margin-bottom:8px;cursor:pointer">' +
         '<div class="record-card-header">' +
           '<span class="record-card-title">' + u.escapeHtml(patientName) + '</span>' +
-          '<div style="display:flex;align-items:center;gap:6px">' +
-            chip +
-            (url ? '<a href="' + url + '" target="_blank" class="btn-icon-sm" title="Open in clinic system" onclick="event.stopPropagation()">' +
-              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
-            '</a>' : '') +
-          '</div>' +
+          chip +
         '</div>' +
         '<div class="record-card-body">' +
           '<p>' + u.escapeHtml(appt.type || 'Appointment') + ' &middot; ' + dateStr + (timeStr ? ' at ' + timeStr : '') + '</p>' +
@@ -3747,11 +3734,14 @@
       var resultsEl = u.byId('appt-patient-results');
       if (resultsEl) { resultsEl.classList.add('hidden'); resultsEl.innerHTML = ''; }
 
-      var pageUrl = result && result.page_105_url;
-      if (pageUrl) window.open(pageUrl, '_blank');
-
       loadDoctorAppointments();
       loadPatientAppointments(patientId);
+
+      // Open the new appointment in the workspace
+      var newApptId = result && (result.id || (result.attrs && result.attrs.id));
+      if (newApptId && patientId) {
+        openAppointmentWorkspace(newApptId, patientId);
+      }
     }).catch(function (err) {
       console.error('Create appointment failed:', err);
       u.showToast('Failed to create appointment: ' + (err.message || 'Unknown error'), 'error');
