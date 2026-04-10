@@ -3,6 +3,7 @@
 // Must load BEFORE config.js (sets CONTACT_ID from JWT).
 (function () {
   'use strict';
+  console.log('[auth] auth.js loaded');
 
   var STORAGE_KEY = 'thc-clinician-session';
   // In dev, the API is on the thc-portal Express server (port 4020)
