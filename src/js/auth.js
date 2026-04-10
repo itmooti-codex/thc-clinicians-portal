@@ -169,8 +169,12 @@
   /** Set AppConfig.CONTACT_ID from session so existing app.js works unchanged. */
   function applySession() {
     if (session && session.contactId) {
-      window.AppConfig = window.AppConfig || {};
-      window.AppConfig.CONTACT_ID = String(session.contactId);
+      // AppConfig may be frozen by config.js — replace the entire object
+      var existing = window.AppConfig || {};
+      var merged = {};
+      for (var k in existing) { merged[k] = existing[k]; }
+      merged.CONTACT_ID = String(session.contactId);
+      window.AppConfig = Object.freeze(merged);
     }
   }
 
