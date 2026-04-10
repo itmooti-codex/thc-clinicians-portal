@@ -965,19 +965,16 @@
       if (banner) banner.remove();
     }
 
-    if (view === 'patients') {
-      u.byId('view-patients').classList.remove('hidden');
+    // Show the target view
+    var el = u.byId('view-' + view);
+    if (el) el.classList.remove('hidden');
+
+    // Sync tab bar active state for main tabs
+    var mainTabs = ['patients', 'appointments', 'timeslots', 'formulary'];
+    if (mainTabs.indexOf(view) >= 0) {
       u.$$('#main-tabs .tab-btn').forEach(function (btn) {
-        btn.classList.toggle('active', btn.dataset.tab === 'patients');
+        btn.classList.toggle('active', btn.dataset.tab === view);
       });
-    } else if (view === 'patient-detail') {
-      u.byId('view-patient-detail').classList.remove('hidden');
-    } else if (view === 'appointment-workspace') {
-      var ws = u.byId('view-appointment-workspace');
-      if (ws) ws.classList.remove('hidden');
-    } else if (view === 'item-detail') {
-      var id = u.byId('view-item-detail');
-      if (id) id.classList.remove('hidden');
     }
   }
 
