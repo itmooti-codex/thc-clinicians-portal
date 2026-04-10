@@ -39,6 +39,26 @@ These are the most important gotchas — memorize these to avoid common bugs:
 - **Vite dev server**: root: `.` with `open: '/dev/'` — NOT `root: 'dev'` which breaks `../src/` paths
 <!-- GOTCHAS:END -->
 
+## Design System
+
+This app shares a design system with the patient portal and all THC properties.
+
+- **Canonical source:** `~/Projects/thc-portal/src/brand.ts` — Single source of truth for all brand tokens (colors, fonts, names, shape)
+- **Style guide:** `~/Projects/thc-portal/docs/style-guide.md` — **READ THIS before building any UI.** Component patterns, spacing, typography, layout rules, anti-patterns. Section 10 covers clinician-specific patterns (desktop-first, wider layouts, data tables).
+- **CSS tokens:** `src/css/styles.css` `:root` block — CSS custom properties derived from `brand.ts`. Keep in sync.
+- **Brand assets:** `~/Projects/thc-portal/public/brand/` — All brand image assets (logos, favicons, icons)
+
+### Quick color reference (from brand.ts)
+| Token | CSS var | Hex |
+|---|---|---|
+| Primary | `--brand-primary` | `#20c0c0` |
+| Primary Dark | `--brand-primary-dark` | `#1a9e9e` |
+| Primary Light | `--brand-primary-light` | `#e0f7f7` |
+| Text | `--brand-text` | `#1a1a2e` |
+| Text Muted | `--brand-text-muted` | `#718096` |
+| Background | `--brand-bg` | `#f7fafa` |
+| Border | `--brand-border` | `#e2e8f0` |
+
 ## Reference Docs
 
 Read these files on demand when working on the corresponding task:

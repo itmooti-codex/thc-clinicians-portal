@@ -1,30 +1,37 @@
 /* thc-clinicians-portal — Clinician Portal Styles */
 
 /* ── Brand Tokens ──────────────────────────────────────────── */
+/* Canonical source: thc-portal/src/brand.ts                    */
+/* Keep in sync — see thc-portal/docs/style-guide.md            */
 :root {
   --brand-primary: #20c0c0;
   --brand-primary-dark: #1a9e9e;
   --brand-primary-light: #e0f7f7;
+  --brand-primary-muted: #4dd8d8;
   --brand-secondary: #2d3748;
   --brand-bg: #f7fafa;
   --brand-white: #ffffff;
-  --brand-black: #1a202c;
-  --brand-text: #2d3748;
+  --brand-black: #1a1a2e;
+  --brand-text: #1a1a2e;
   --brand-text-muted: #718096;
+  --brand-text-light: #a0aec0;
   --brand-border: #e2e8f0;
   --brand-surface: #ffffff;
+  --brand-surface-warm: #f0f4f4;
   --brand-error: #e53e3e;
-  --brand-error-bg: #fff5f5;
+  --brand-error-bg: #fed7d7;
   --brand-success: #38a169;
-  --brand-success-bg: #f0fff4;
-  --brand-warning: #d69e2e;
-  --brand-warning-bg: #fffff0;
+  --brand-success-bg: #c6f6d5;
+  --brand-warning: #dd6b20;
+  --brand-warning-bg: #feebc8;
   --brand-info: #3182ce;
-  --font-heading: 'Lora', Georgia, serif;
-  --font-body: 'Lato', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-heading: 'Lora', 'Georgia', serif;
+  --font-body: 'Lato', 'Helvetica Neue', sans-serif;
   --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
 }
 
