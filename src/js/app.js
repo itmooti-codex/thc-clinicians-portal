@@ -104,9 +104,9 @@
             msgEl.classList.remove('hidden');
           }
           btn.textContent = 'Link Sent';
-        }).catch(function () {
+        }).catch(function (err) {
           if (msgEl) {
-            msgEl.textContent = 'Something went wrong. Please try again.';
+            msgEl.textContent = err.message || 'Something went wrong. Please try again.';
             msgEl.className = 'login-message login-message-error';
             msgEl.classList.remove('hidden');
           }

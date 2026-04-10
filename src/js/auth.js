@@ -44,13 +44,20 @@
     return session;
   }
 
-  /** Request a magic link email. Returns a promise. */
+  /** Request a magic link email. Returns a promise that rejects if not a clinician. */
   function requestMagicLink(email) {
     return fetch(API_BASE + '/api/auth/magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email }),
-    }).then(function (res) { return res.json(); });
+      body: JSON.stringify({ email: email, requiredRole: 'clinician' }),
+    }).then(function (res) {
+      if (res.status === 403) {
+        return res.json().then(function (data) {
+          throw new Error(data.error || 'This email is not registered as a clinician.');
+        });
+      }
+      return res.json();
+    });
   }
 
   /** Verify a magic link token. Returns { sessionToken, contactId, role, ... } */
