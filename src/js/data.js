@@ -574,19 +574,7 @@
 
   /** Delete a single script via Ontraport API (objectID 10002). */
   function deleteScript(scriptId) {
-    return fetch(ONTRAPORT_API + '/object?objectID=10002&id=' + encodeURIComponent(scriptId), {
-      method: 'DELETE',
-      headers: {
-        'Api-Appid': ONTRAPORT_APPID,
-        'Api-Key': ONTRAPORT_KEY,
-      },
-    }).then(function (res) {
-      if (!res.ok) throw new Error('Ontraport API error: ' + res.status);
-      return res.json();
-    }).then(function (json) {
-      if (json.code !== 0) throw new Error('Ontraport error code: ' + json.code);
-      return json.data;
-    });
+    return ontraportRequest('DELETE', '/object?objectID=10002&id=' + encodeURIComponent(scriptId));
   }
 
   /** Update an existing clinical note via Ontraport API (objectID 10008). */

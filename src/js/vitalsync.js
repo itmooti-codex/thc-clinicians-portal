@@ -56,7 +56,7 @@
         return window
           .initVitalStatsSDK({
             slug: config.SLUG,
-            apiKey: config.API_KEY || '',
+            apiKey: config.API_KEY || '', // API_KEY no longer in config (proxy handles auth) — SDK init is optional
             isDefault: true,
           })
           .toPromise();
