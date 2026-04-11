@@ -16,7 +16,7 @@
     cart.push({
       item: item,
       recommendation: recommendation || null,
-      repeats: 3,
+      repeats: window.DoctorPreferences ? window.DoctorPreferences.get('default_repeats') : 3,
       dosage: recommendation ? recommendation.dosageTemplate : (SD.DOSAGE_TEMPLATES[item.type] || SD.DOSAGE_TEMPLATES['Oil']),
       condition: recommendation && recommendation.matchedConditions
         ? recommendation.matchedConditions.map(function (mc) { return mc.condition; }).join(', ')
@@ -672,11 +672,13 @@
       html += '<div class="form-row">';
       html += '<div class="form-group form-group-sm">';
       html += '<label>Repeats</label>';
-      html += '<div class="input-wrapper"><input type="number" class="script-repeats" data-idx="' + idx + '" value="' + (entry.repeats || 3) + '" min="0" max="20"></div>';
+      var _defRepeats = window.DoctorPreferences ? window.DoctorPreferences.get('default_repeats') : 3;
+      var _defInterval = window.DoctorPreferences ? window.DoctorPreferences.get('default_interval_days') : 7;
+      html += '<div class="input-wrapper"><input type="number" class="script-repeats" data-idx="' + idx + '" value="' + (entry.repeats || _defRepeats) + '" min="0" max="20"></div>';
       html += '</div>';
       html += '<div class="form-group form-group-sm">';
       html += '<label>Interval Days</label>';
-      html += '<div class="input-wrapper"><input type="number" class="script-interval" data-idx="' + idx + '" value="7" min="1" max="90"></div>';
+      html += '<div class="input-wrapper"><input type="number" class="script-interval" data-idx="' + idx + '" value="' + _defInterval + '" min="1" max="90"></div>';
       html += '</div>';
       html += '<div class="form-group form-group-sm">';
       html += '<label>Dispense Quantity</label>';
@@ -722,10 +724,10 @@
         patient_id: patientId,
         drug_id: entry.item.id,
         appointment_id: appointmentId,
-        repeats: parseInt(val('script-repeats')) || 3,
-        interval_days: parseInt(val('script-interval')) || 7,
+        repeats: parseInt(val('script-repeats')) || (window.DoctorPreferences ? window.DoctorPreferences.get('default_repeats') : 3),
+        interval_days: parseInt(val('script-interval')) || (window.DoctorPreferences ? window.DoctorPreferences.get('default_interval_days') : 7),
         dispense_qty: parseInt(val('script-dispense-qty')) || 1,
-        supply_limit: parseInt(val('script-repeats')) || 3,
+        supply_limit: parseInt(val('script-repeats')) || (window.DoctorPreferences ? window.DoctorPreferences.get('default_repeats') : 3),
         dosage_instructions: val('script-dosage') || entry.dosage,
         route: val('script-route'),
         condition: val('script-condition') || entry.condition,
@@ -1082,11 +1084,11 @@
     html += '<div class="form-row">';
     html += '<div class="form-group form-group-sm">';
     html += '<label>Repeats</label>';
-    html += '<div class="input-wrapper"><input type="number" id="edit-script-repeats" value="' + (script.repeats || 3) + '" min="0" max="20"></div>';
+    html += '<div class="input-wrapper"><input type="number" id="edit-script-repeats" value="' + (script.repeats || (window.DoctorPreferences ? window.DoctorPreferences.get('default_repeats') : 3)) + '" min="0" max="20"></div>';
     html += '</div>';
     html += '<div class="form-group form-group-sm">';
     html += '<label>Interval Days</label>';
-    html += '<div class="input-wrapper"><input type="number" id="edit-script-interval" value="' + (script.interval_days || 7) + '" min="1" max="90"></div>';
+    html += '<div class="input-wrapper"><input type="number" id="edit-script-interval" value="' + (script.interval_days || (window.DoctorPreferences ? window.DoctorPreferences.get('default_interval_days') : 7)) + '" min="1" max="90"></div>';
     html += '</div>';
     html += '<div class="form-group form-group-sm">';
     html += '<label>Dispense Quantity</label>';

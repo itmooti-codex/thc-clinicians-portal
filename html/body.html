@@ -35,6 +35,7 @@
     <!-- Header -->
     <header class="app-header">
       <div class="header-left">
+        <img src="https://itmooti-codex.github.io/thc-clinicians-portal/brand/logo.png" alt="The Happy Clinic" class="header-logo" style="height:36px;width:auto">
         <h1 class="header-title">Clinicians Portal</h1>
         <span class="header-subtitle" id="doctor-name"></span>
       </div>
@@ -45,7 +46,11 @@
 
     <!-- Top Navigation Tabs -->
     <nav class="tab-bar" id="main-tabs">
-      <button class="tab-btn active" data-tab="patients">
+      <button class="tab-btn active" data-tab="today">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Today
+      </button>
+      <button class="tab-btn" data-tab="patients">
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
         Patients
       </button>
@@ -57,6 +62,10 @@
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
         Formulary
       </button>
+      <button class="tab-btn" data-tab="settings">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </button>
     </nav>
 
     <!-- Timeslot alert banner (shown when doctor has <2 future timeslots) -->
@@ -67,7 +76,18 @@
     </div>
 
     <!-- ═══ PATIENTS VIEW ═══ -->
-    <div id="view-patients" class="view">
+    <!-- ═══ TODAY'S SCHEDULE VIEW ═══ -->
+    <div id="view-today" class="view">
+      <div class="view-toolbar">
+        <h2 class="view-title" style="margin:0" id="today-date">Today</h2>
+      </div>
+      <div id="today-list" class="today-schedule"></div>
+      <div id="today-empty" class="empty-state hidden">
+        <p>No appointments scheduled for today.</p>
+        <button class="btn btn-primary btn-sm" onclick="document.querySelector('[data-tab=appointments]').click()">View All Appointments</button>
+      </div>
+    </div>
+    <div id="view-patients" class="view hidden">
       <div class="view-toolbar">
         <div class="search-container">
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -91,6 +111,7 @@
 
       <!-- Patient Hero Card -->
       <div class="patient-hero" id="patient-hero"></div>
+      <div class="patient-summary" id="patient-summary"></div>
 
       <!-- Detail Sub-Tabs -->
       <nav class="detail-tab-bar" id="detail-tabs">
@@ -455,6 +476,50 @@
         <span>Loading appointments...</span>
       </div>
     </div>
+
+    <!-- ═══ SETTINGS VIEW ═══ -->
+    <div id="view-settings" class="view hidden">
+      <div class="view-toolbar">
+        <h2 class="view-title" style="margin:0">Settings</h2>
+      </div>
+      <div class="settings-page">
+        <section class="settings-section">
+          <h3 class="settings-section-title">Script Defaults</h3>
+          <p class="settings-section-desc">These values will pre-fill when creating new scripts. You can always override them per-script.</p>
+          <div class="settings-fields">
+            <div class="form-row">
+              <div class="form-group form-group-sm">
+                <label for="pref-default-repeats">Default Repeats</label>
+                <div class="input-wrapper"><input type="number" id="pref-default-repeats" min="0" max="20" value="3"></div>
+              </div>
+              <div class="form-group form-group-sm">
+                <label for="pref-default-interval">Default Interval (days)</label>
+                <div class="input-wrapper"><input type="number" id="pref-default-interval" min="1" max="90" value="7"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3 class="settings-section-title">Calendar View Hours</h3>
+          <p class="settings-section-desc">Set the time range shown on appointment and timeslot calendars.</p>
+          <div class="settings-fields">
+            <div class="form-row">
+              <div class="form-group form-group-sm">
+                <label for="pref-calendar-start">Start Time</label>
+                <div class="input-wrapper"><input type="time" id="pref-calendar-start" value="08:00"></div>
+              </div>
+              <div class="form-group form-group-sm">
+                <label for="pref-calendar-end">End Time</label>
+                <div class="input-wrapper"><input type="time" id="pref-calendar-end" value="20:00"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div class="settings-actions">
+          <button type="button" class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ ADD PATIENT MODAL ═══ -->
@@ -591,6 +656,86 @@
     </div>
   </div>
 
+  <!-- ═══ APPOINTMENT PICKER MODAL ═══ -->
+  <div id="modal-appointment-picker" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Select Appointment</h2>
+        <button class="modal-close" data-close-modal="modal-appointment-picker">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-bottom:12px">Scripts must be linked to an appointment. Select the appointment to prescribe into.</p>
+        <div id="appt-picker-patient-step">
+          <div class="form-group">
+            <label for="appt-picker-patient-search">Patient</label>
+            <div class="patient-search-wrap">
+              <input type="text" id="appt-picker-patient-search" class="search-input" placeholder="Type patient name and press Enter..." autocomplete="off">
+              <input type="hidden" id="appt-picker-patient-id">
+              <div id="appt-picker-patient-results" class="patient-search-results hidden" role="listbox" aria-label="Matching patients"></div>
+            </div>
+          </div>
+        </div>
+        <div id="appt-picker-appointments" class="hidden">
+          <p id="appt-picker-patient-label" class="text-muted" style="margin-bottom:8px"></p>
+          <div id="appt-picker-list" class="appt-picker-list"></div>
+          <p id="appt-picker-empty" class="empty-state-sm hidden">No appointments found for this patient.</p>
+        </div>
+        <div id="appt-picker-loading" class="hidden" style="text-align:center;padding:16px;">
+          <div class="loading-spinner loading-spinner-sm" style="display:inline-block;margin-right:8px"></div>
+          <span>Loading appointments...</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modal-appointment-picker">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ EDIT APPOINTMENT MODAL ═══ -->
+  <div id="modal-edit-appointment" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Edit Appointment</h2>
+        <button class="modal-close" data-close-modal="modal-edit-appointment">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-appt-id">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="edit-appt-type">Type</label>
+            <div class="input-wrapper">
+              <select id="edit-appt-type">
+                <option value="Initial Consultation">Initial Consultation</option>
+                <option value="Follow Up Consultation">Follow Up Consultation</option>
+                <option value="In Patient Consultation">In Patient Consultation</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="edit-appt-date">Date &amp; Time</label>
+            <div class="input-wrapper"><input type="datetime-local" id="edit-appt-date"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="edit-appt-status">Status</label>
+          <div class="input-wrapper">
+            <select id="edit-appt-status">
+              <option value="Booked">Booked</option>
+              <option value="Paid">Paid</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+              <option value="Rescheduled">Rescheduled</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modal-edit-appointment">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-save-edit-appt">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ ADD APPOINTMENT MODAL ═══ -->
   <div id="modal-add-appointment" class="modal-overlay hidden">
     <div class="modal">
@@ -604,21 +749,37 @@
           <label>Patient</label>
           <div class="appt-patient-display" id="appt-patient-name"></div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="appt-type">Type *</label>
-            <div class="input-wrapper">
-              <select id="appt-type" required>
-                <option value="Initial Consultation">Initial Consultation</option>
-                <option value="Follow Up Consultation">Follow Up Consultation</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="appt-date">Date & Time *</label>
-            <div class="input-wrapper"><input type="datetime-local" id="appt-date" required></div>
+        <div class="form-group">
+          <label for="appt-type">Type *</label>
+          <div class="input-wrapper">
+            <select id="appt-type" required>
+              <option value="Initial Consultation">Initial Consultation</option>
+              <option value="Follow Up Consultation">Follow Up Consultation</option>
+            </select>
           </div>
         </div>
+        <div class="form-group">
+          <label>When</label>
+          <div class="appt-when-toggle">
+            <button type="button" class="appt-when-btn active" data-when="now">Now</button>
+            <button type="button" class="appt-when-btn" data-when="timeslot">Future Timeslot</button>
+          </div>
+        </div>
+        <div id="appt-when-now" class="form-group">
+          <label for="appt-date">Date &amp; Time *</label>
+          <div class="input-wrapper"><input type="datetime-local" id="appt-date" required></div>
+        </div>
+        <div id="appt-when-timeslot" class="hidden">
+          <label>Select a timeslot</label>
+          <div id="appt-timeslot-list" class="appt-timeslot-list"></div>
+          <p id="appt-timeslot-empty" class="empty-state-sm hidden">No available timeslots found.</p>
+          <input type="hidden" id="appt-timeslot-id">
+        </div>
+        <div class="form-group">
+          <label for="appt-fee">Consultation Fee ($)</label>
+          <div class="input-wrapper"><input type="number" id="appt-fee" min="0" step="0.01" placeholder="0.00"></div>
+        </div>
+        <div id="appt-payment-info" class="appt-payment-info hidden"></div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-close-modal="modal-add-appointment">Cancel</button>
           <button type="submit" class="btn btn-primary" id="btn-submit-appointment">Create Appointment</button>

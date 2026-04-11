@@ -20,6 +20,7 @@
   var scoreCache = {}; // itemId → { clinicalScore, finalScore, reasoning, contraindications, tags }
   var scoreCacheReady = false;
   var previousView = null; // Where to go back to from workspace
+  var pendingPrescribeItem = null; // { item, recommendation } — stashed when prescribing without appointment context
   var wpTabsLoaded = { appointments: false, notes: false, scripts: false }; // Lazy load flags for workspace patient tabs
   var cachedTimeslots = [];
   var cachedDoctorAppointments = [];
@@ -35,6 +36,30 @@
   var timeslotsWindowEnd = 0;
   var TIMESLOTS_PAGE_SIZE = 10;
   var TIMESLOTS_SCROLL_THRESHOLD = 120;
+
+  // ── Doctor Preferences ──────────────────────────────────────
+
+  var doctorPreferences = {};
+  var PREF_DEFAULTS = {
+    default_repeats: 3,
+    default_interval_days: 7,
+    calendar_view_start: '08:00',
+    calendar_view_end: '20:00',
+  };
+
+  window.DoctorPreferences = {
+    get: function (key) {
+      var val = doctorPreferences[key];
+      return val != null && val !== '' ? val : PREF_DEFAULTS[key];
+    },
+    getAll: function () {
+      var merged = {};
+      for (var k in PREF_DEFAULTS) merged[k] = doctorPreferences[k] != null && doctorPreferences[k] !== '' ? doctorPreferences[k] : PREF_DEFAULTS[k];
+      return merged;
+    },
+    set: function (key, value) { doctorPreferences[key] = value; },
+    setAll: function (prefs) { for (var k in prefs) doctorPreferences[k] = prefs[k]; },
+  };
 
   // ── Initialization ─────────────────────────────────────────
 
@@ -149,6 +174,15 @@
           if (el) el.textContent = 'Dr. ' + (doc.first_name || '') + ' ' + (doc.last_name || '');
         }
       }).catch(function () {});
+
+      // Load doctor preferences from Ontraport
+      data.fetchDoctorPreferences(doctorIdNum).then(function (prefs) {
+        window.DoctorPreferences.setAll(prefs);
+        // Sync calendar hours to localStorage for existing calendar code
+        var start = window.DoctorPreferences.get('calendar_view_start');
+        var end = window.DoctorPreferences.get('calendar_view_end');
+        setCalendarViewHours(start, end);
+      }).catch(function () { /* silent — defaults used */ });
     }
 
     // Background check: fetch timeslots early to show alert banner if needed
@@ -156,6 +190,12 @@
       data.fetchTimeslots(doctorId).then(function (slots) {
         cachedTimeslots = slots || [];
         checkFutureTimeslotAlert();
+      }).catch(function () {});
+
+      // Fetch appointments at boot for Today's Schedule
+      data.fetchAppointments({ doctor_id: doctorId, limit: 200 }).then(function (appts) {
+        cachedDoctorAppointments = appts || [];
+        loadTodaySchedule();
       }).catch(function () {});
     }
   }
@@ -236,6 +276,47 @@
     if (btnAddApptFromList) btnAddApptFromList.addEventListener('click', function () { openAddAppointmentModal(null); });
     u.byId('form-add-appointment').addEventListener('submit', handleCreateAppointment);
 
+    // Appointment "When" toggle (Now / Future Timeslot)
+    u.$$('.appt-when-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        u.$$('.appt-when-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var mode = btn.dataset.when;
+        var nowSection = u.byId('appt-when-now');
+        var slotSection = u.byId('appt-when-timeslot');
+        var dateInput = u.byId('appt-date');
+        if (mode === 'now') {
+          if (nowSection) nowSection.classList.remove('hidden');
+          if (slotSection) slotSection.classList.add('hidden');
+          if (dateInput) dateInput.required = true;
+        } else {
+          if (nowSection) nowSection.classList.add('hidden');
+          if (slotSection) slotSection.classList.remove('hidden');
+          if (dateInput) dateInput.required = false;
+          renderApptTimeslotList();
+        }
+      });
+    });
+
+    // Timeslot selection in appointment modal
+    var apptTimeslotList = u.byId('appt-timeslot-list');
+    if (apptTimeslotList) {
+      apptTimeslotList.addEventListener('click', function (e) {
+        var item = e.target.closest('.appt-timeslot-item');
+        if (!item) return;
+        // Deselect all, select this one
+        apptTimeslotList.querySelectorAll('.appt-timeslot-item').forEach(function (el) { el.classList.remove('selected'); });
+        item.classList.add('selected');
+        var slotId = item.dataset.timeslotId;
+        var slotTime = item.dataset.startTime;
+        u.byId('appt-timeslot-id').value = slotId;
+        // Also set the date input so handleCreateAppointment picks it up
+        u.byId('appt-date').value = '';
+        // Store the start_time unix on a data attribute for the handler
+        apptTimeslotList.dataset.selectedTime = slotTime;
+      });
+    }
+
     // Add clinical note
     var btnAddNote = u.byId('btn-add-note');
     if (btnAddNote) btnAddNote.addEventListener('click', function () { openAddNoteModal(); });
@@ -274,7 +355,20 @@
         if (apptPatientSearch) apptPatientSearch.value = item.dataset.patientName || '';
         apptPatientResults.classList.add('hidden');
         apptPatientResults.innerHTML = '';
+        // Check card on file for selected patient
+        checkPatientCard(Number(item.dataset.patientId));
       });
+    }
+
+    // Auto-update fee when appointment type changes
+    var apptTypeSelect = u.byId('appt-type');
+    if (apptTypeSelect) {
+      apptTypeSelect.addEventListener('change', function () { updateApptFee(); updatePaymentInfo(); });
+    }
+    // Update payment info when fee changes
+    var apptFeeInput = u.byId('appt-fee');
+    if (apptFeeInput) {
+      apptFeeInput.addEventListener('input', updatePaymentInfo);
     }
 
     // Add timeslot
@@ -581,9 +675,9 @@
         panel.querySelectorAll('.script-tab-panel').forEach(function (p) { p.classList.add('hidden'); });
         var targetPanel = panel.querySelector('[data-script-panel="' + tabName + '"]');
         if (targetPanel) targetPanel.classList.remove('hidden');
-        // Hide bulk archive button when on Past tab
-        var bulkBtn = panel.querySelector('.btn-bulk-archive');
-        if (bulkBtn) bulkBtn.classList.toggle('hidden', tabName !== 'open');
+        // Hide bulk actions when switching tabs
+        var bulkActions = panel.querySelector('.scripts-bulk-actions');
+        if (bulkActions) bulkActions.classList.add('hidden');
         return;
       }
 
@@ -629,7 +723,8 @@
             if (card) card.remove();
           });
           updateScriptTabCounts(bulkArchiveBtn);
-          bulkArchiveBtn.classList.add('hidden');
+          var bulkActions = bulkArchiveBtn.closest('.scripts-bulk-actions');
+          if (bulkActions) bulkActions.classList.add('hidden');
           bulkArchiveBtn.disabled = false;
           bulkArchiveBtn.textContent = 'Archive Selected';
         }).catch(function () {
@@ -639,17 +734,38 @@
         });
         return;
       }
+
+      // Bulk re-prescribe
+      var bulkReprescribeBtn = e.target.closest('.btn-bulk-represcribe');
+      if (bulkReprescribeBtn) {
+        var panel = bulkReprescribeBtn.closest('.scripts-tab-bar') ? bulkReprescribeBtn.closest('.scripts-tab-bar').parentElement : bulkReprescribeBtn.parentElement.parentElement.parentElement;
+        var checked = panel.querySelectorAll('.script-select:checked');
+        if (checked.length === 0) return;
+        var items = [];
+        checked.forEach(function (cb) {
+          var card = cb.closest('.script-card');
+          var drugId = card ? parseInt(card.dataset.drugId) : 0;
+          var item = enrichedItemsCache.find(function (i) { return i.id === drugId; }) || itemsMap[drugId];
+          if (item) items.push({ item: item, recommendation: null });
+        });
+        if (items.length > 0) {
+          requireAppointmentContextBulk(items);
+        } else {
+          u.showToast('No product data found for selected scripts', 'error');
+        }
+        return;
+      }
     });
 
-    // Checkbox change: show/hide bulk archive button
+    // Checkbox change: show/hide bulk action buttons
     document.addEventListener('change', function (e) {
       if (!e.target.classList.contains('script-select')) return;
       var panel = e.target.closest('[data-script-panel="open"]');
       if (!panel) return;
       var anyChecked = panel.querySelector('.script-select:checked');
       var container = panel.parentElement;
-      var bulkBtn = container ? container.querySelector('.btn-bulk-archive') : null;
-      if (bulkBtn) bulkBtn.classList.toggle('hidden', !anyChecked);
+      var bulkActions = container ? container.querySelector('.scripts-bulk-actions') : null;
+      if (bulkActions) bulkActions.classList.toggle('hidden', !anyChecked);
     });
 
     // Draft script actions: Edit + Delete
@@ -776,13 +892,11 @@
       if (!btn) return;
       var itemId = parseInt(btn.dataset.itemId);
       var item = enrichedItemsCache.find(function (i) { return i.id === itemId; });
-      if (item && prescribe) {
-        prescribe.addToCart(item, null);
-        u.showToast('"' + (item.item_name || 'Product') + '" added to prescription cart', 'success');
-        // Navigate back to workspace if we came from there
+      if (item) {
+        requireAppointmentContext(item, null);
+        // Navigate back to workspace if we're already in context
         if (currentAppointmentId) {
           showView('appointment-workspace');
-          // Open the prescribe section
           var prescribeSection = u.byId('workspace-prescribe-section');
           if (prescribeSection) prescribeSection.open = true;
         }
@@ -795,14 +909,14 @@
       if (!btn) return;
       var drugId = parseInt(btn.dataset.drugId);
       var item = enrichedItemsCache.find(function (i) { return i.id === drugId; }) || itemsMap[drugId];
-      if (item && prescribe) {
-        prescribe.addToCart(item, null);
-        u.showToast('"' + (item.item_name || 'Product') + '" added to prescription cart', 'success');
-        // Open prescribe section and scroll to it
-        var prescribeSection = u.byId('workspace-prescribe-section');
-        if (prescribeSection) {
-          prescribeSection.open = true;
-          prescribeSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (item) {
+        requireAppointmentContext(item, null);
+        if (currentAppointmentId) {
+          var prescribeSection = u.byId('workspace-prescribe-section');
+          if (prescribeSection) {
+            prescribeSection.open = true;
+            prescribeSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
         }
       }
     });
@@ -824,10 +938,130 @@
       });
     });
 
+    // Clear pending prescribe item when appointment picker is closed
+    u.$$('[data-close-modal="modal-appointment-picker"]').forEach(function (btn) {
+      btn.addEventListener('click', function () { pendingPrescribeItem = null; });
+    });
+    var pickerOverlay = u.byId('modal-appointment-picker');
+    if (pickerOverlay) {
+      pickerOverlay.addEventListener('click', function (e) {
+        if (e.target === pickerOverlay) pendingPrescribeItem = null;
+      });
+    }
+
+    // Appointment picker: patient search
+    var pickerPatientSearch = u.byId('appt-picker-patient-search');
+    if (pickerPatientSearch) {
+      pickerPatientSearch.addEventListener('input', function () {
+        u.byId('appt-picker-patient-id').value = '';
+      });
+      pickerPatientSearch.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runPickerPatientSearch();
+        }
+      });
+    }
+
+    // Appointment picker: patient result selection
+    var pickerPatientResults = u.byId('appt-picker-patient-results');
+    if (pickerPatientResults) {
+      pickerPatientResults.addEventListener('click', function (e) {
+        var item = e.target.closest('.patient-result-item');
+        if (!item || !item.dataset.patientId) return;
+        var pId = item.dataset.patientId;
+        var pName = item.dataset.patientName;
+        u.byId('appt-picker-patient-id').value = pId;
+        if (pickerPatientSearch) pickerPatientSearch.value = pName;
+        pickerPatientResults.classList.add('hidden');
+        // Transition to appointment list
+        var patientStep = u.byId('appt-picker-patient-step');
+        var apptsStep = u.byId('appt-picker-appointments');
+        var labelEl = u.byId('appt-picker-patient-label');
+        if (patientStep) patientStep.classList.add('hidden');
+        if (labelEl) labelEl.textContent = 'Appointments for ' + pName;
+        if (apptsStep) apptsStep.classList.remove('hidden');
+        loadAppointmentPickerList(Number(pId));
+      });
+    }
+
+    // Appointment picker: appointment selection
+    var pickerList = u.byId('appt-picker-list');
+    if (pickerList) {
+      pickerList.addEventListener('click', function (e) {
+        var item = e.target.closest('.appt-picker-item');
+        if (!item) return;
+        var appointmentId = Number(item.dataset.appointmentId);
+        var patientId = Number(item.dataset.patientId);
+        closeModal('modal-appointment-picker');
+        openAppointmentWorkspace(appointmentId, patientId);
+      });
+    }
+
     window.addEventListener('resize', function () {
       updateTimeslotsCalendarHeight();
       updateAppointmentsCalendarHeight();
     });
+
+    // ── Appointment Edit/Cancel ──
+    document.addEventListener('click', function (e) {
+      var editBtn = e.target.closest('.btn-edit-appt');
+      if (editBtn) {
+        var apptId = Number(editBtn.dataset.apptId);
+        var appt = cachedDoctorAppointments.find(function (a) { return a.id == apptId; });
+        if (appt) openEditAppointmentModal(appt);
+        return;
+      }
+      var cancelBtn = e.target.closest('.btn-cancel-appt');
+      if (cancelBtn) {
+        var apptId2 = Number(cancelBtn.dataset.apptId);
+        if (!confirm('Cancel this appointment? This cannot be undone.')) return;
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = 'Cancelling...';
+        data.cancelAppointment(apptId2).then(function () {
+          u.showToast('Appointment cancelled', 'success');
+          loadDoctorAppointments();
+          loadTodaySchedule();
+        }).catch(function () {
+          u.showToast('Failed to cancel appointment', 'error');
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = 'Cancel';
+        });
+        return;
+      }
+    });
+
+    // ── Edit appointment save ──
+    var btnSaveEditAppt = u.byId('btn-save-edit-appt');
+    if (btnSaveEditAppt) {
+      btnSaveEditAppt.addEventListener('click', handleSaveAppointment);
+    }
+
+    // ── Settings save ──
+    var btnSaveSettings = u.byId('btn-save-settings');
+    if (btnSaveSettings) {
+      btnSaveSettings.addEventListener('click', function () {
+        var prefs = {
+          default_repeats: parseInt(u.byId('pref-default-repeats').value) || 3,
+          default_interval_days: parseInt(u.byId('pref-default-interval').value) || 7,
+          calendar_view_start: u.byId('pref-calendar-start').value || '08:00',
+          calendar_view_end: u.byId('pref-calendar-end').value || '20:00',
+        };
+        btnSaveSettings.disabled = true;
+        btnSaveSettings.textContent = 'Saving...';
+        data.saveDoctorPreferences(doctorId, prefs).then(function () {
+          window.DoctorPreferences.setAll(prefs);
+          setCalendarViewHours(prefs.calendar_view_start, prefs.calendar_view_end);
+          btnSaveSettings.textContent = 'Save Settings';
+          btnSaveSettings.disabled = false;
+          u.showToast('Settings saved', 'success');
+        }).catch(function () {
+          btnSaveSettings.textContent = 'Save Settings';
+          btnSaveSettings.disabled = false;
+          u.showToast('Failed to save settings', 'error');
+        });
+      });
+    }
 
     // ── Prescribe events (document-level delegation for workspace) ──
     document.addEventListener('click', function (e) {
@@ -937,7 +1171,10 @@
 
     u.$$('.view').forEach(function (v) { v.classList.add('hidden'); });
 
-    if (tab === 'patients') {
+    if (tab === 'today') {
+      u.byId('view-today').classList.remove('hidden');
+      loadTodaySchedule();
+    } else if (tab === 'patients') {
       u.byId('view-patients').classList.remove('hidden');
     } else if (tab === 'appointments') {
       u.byId('view-appointments').classList.remove('hidden');
@@ -953,7 +1190,19 @@
     } else if (tab === 'formulary') {
       u.byId('view-formulary').classList.remove('hidden');
       runFormularySearch();
+    } else if (tab === 'settings') {
+      u.byId('view-settings').classList.remove('hidden');
+      populateSettingsForm();
     }
+  }
+
+  function populateSettingsForm() {
+    var prefs = window.DoctorPreferences.getAll();
+    var el;
+    el = u.byId('pref-default-repeats');   if (el) el.value = prefs.default_repeats;
+    el = u.byId('pref-default-interval');  if (el) el.value = prefs.default_interval_days;
+    el = u.byId('pref-calendar-start');    if (el) el.value = prefs.calendar_view_start;
+    el = u.byId('pref-calendar-end');      if (el) el.value = prefs.calendar_view_end;
   }
 
   function showView(view) {
@@ -998,6 +1247,126 @@
   function closeModal(id) {
     var modal = u.byId(id);
     if (modal) modal.classList.add('hidden');
+  }
+
+  // ── Prescribe Gate: ensure appointment context ─────────────
+
+  function requireAppointmentContext(item, recommendation) {
+    pendingPrescribeItem = null; // Clear any stale pending item
+    if (currentAppointmentId) {
+      // Already in workspace context — add directly
+      prescribe.addToCart(item, recommendation || null);
+      u.showToast('"' + (item.item_name || 'Product') + '" added to prescription cart', 'success');
+      return;
+    }
+    // No appointment context — stash item and open picker
+    pendingPrescribeItem = [{ item: item, recommendation: recommendation || null }];
+    openAppointmentPickerModal(currentPatientId);
+  }
+
+  /** Gate for multiple items at once (bulk re-prescribe). */
+  function requireAppointmentContextBulk(items) {
+    pendingPrescribeItem = null;
+    if (currentAppointmentId) {
+      items.forEach(function (entry) { prescribe.addToCart(entry.item, entry.recommendation || null); });
+      u.showToast(items.length + ' item' + (items.length > 1 ? 's' : '') + ' added to prescription cart', 'success');
+      return;
+    }
+    pendingPrescribeItem = items;
+    openAppointmentPickerModal(currentPatientId);
+  }
+
+  function openAppointmentPickerModal(patientId) {
+    var patientStep = u.byId('appt-picker-patient-step');
+    var apptsStep = u.byId('appt-picker-appointments');
+    var loading = u.byId('appt-picker-loading');
+    var searchInput = u.byId('appt-picker-patient-search');
+    var idInput = u.byId('appt-picker-patient-id');
+    var results = u.byId('appt-picker-patient-results');
+    var listEl = u.byId('appt-picker-list');
+    var emptyEl = u.byId('appt-picker-empty');
+    var labelEl = u.byId('appt-picker-patient-label');
+
+    // Reset state
+    if (listEl) listEl.innerHTML = '';
+    if (emptyEl) emptyEl.classList.add('hidden');
+    if (loading) loading.classList.add('hidden');
+    if (results) { results.classList.add('hidden'); results.innerHTML = ''; }
+    if (searchInput) searchInput.value = '';
+    if (idInput) idInput.value = '';
+
+    if (patientId) {
+      // Patient context exists — skip search, go straight to appointment list
+      if (patientStep) patientStep.classList.add('hidden');
+      if (idInput) idInput.value = String(patientId);
+      var patient = allPatients.find(function (p) { return p.id == patientId; });
+      var name = patient ? getPatientDisplayName(patient) : 'Patient #' + patientId;
+      if (labelEl) labelEl.textContent = 'Appointments for ' + name;
+      if (apptsStep) apptsStep.classList.remove('hidden');
+      loadAppointmentPickerList(patientId);
+    } else {
+      // No patient context — show search step
+      if (patientStep) patientStep.classList.remove('hidden');
+      if (apptsStep) apptsStep.classList.add('hidden');
+    }
+
+    openModal('modal-appointment-picker');
+  }
+
+  function loadAppointmentPickerList(patientId) {
+    var listEl = u.byId('appt-picker-list');
+    var emptyEl = u.byId('appt-picker-empty');
+    var loading = u.byId('appt-picker-loading');
+    if (loading) loading.classList.remove('hidden');
+    if (listEl) listEl.innerHTML = '';
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    data.fetchAppointments({ patient_id: patientId, doctor_id: doctorId }).then(function (appointments) {
+      if (loading) loading.classList.add('hidden');
+      if (!appointments || appointments.length === 0) {
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        return;
+      }
+      // Sort by appointment_time descending (most recent first)
+      appointments.sort(function (a, b) {
+        return (parseInt(b.appointment_time) || 0) - (parseInt(a.appointment_time) || 0);
+      });
+      appointments.forEach(function (appt) {
+        var time = appt.appointment_time ? new Date(parseInt(appt.appointment_time) * 1000) : null;
+        var timeStr = time ? time.toLocaleDateString('en-AU') + ' ' + time.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }) : 'No date';
+        var statusClass = (appt.status || '').toLowerCase().replace(/\s+/g, '-');
+        var div = document.createElement('div');
+        div.className = 'appt-picker-item';
+        div.dataset.appointmentId = appt.id;
+        div.dataset.patientId = appt.patient_id;
+        div.innerHTML =
+          '<div class="appt-picker-item-info">' +
+            '<span class="appt-picker-item-type">' + u.escapeHtml(appt.type || 'Appointment') + '</span>' +
+            '<span class="appt-picker-item-time">' + u.escapeHtml(timeStr) + '</span>' +
+          '</div>' +
+          '<span class="appt-picker-item-status">' + u.escapeHtml(appt.status || '') + '</span>';
+        listEl.appendChild(div);
+      });
+    }).catch(function () {
+      if (loading) loading.classList.add('hidden');
+      if (emptyEl) { emptyEl.textContent = 'Failed to load appointments.'; emptyEl.classList.remove('hidden'); }
+    });
+  }
+
+  function runPickerPatientSearch() {
+    var searchInput = u.byId('appt-picker-patient-search');
+    var idInput = u.byId('appt-picker-patient-id');
+    if (!searchInput || !idInput) return;
+    if (idInput.value) return;
+    var query = searchInput.value.trim();
+    if (!query) return;
+    renderAppointmentPatientResultsFromList([], 'Searching...', 'appt-picker-patient-results');
+    data.searchPatients(query).then(function (results) {
+      var arr = Array.isArray(results) ? results : [];
+      renderAppointmentPatientResultsFromList(arr, arr.length === 0 ? 'No patients match. Try a different name.' : null, 'appt-picker-patient-results');
+    }).catch(function () {
+      renderAppointmentPatientResultsFromList([], 'Search failed. Try again.', 'appt-picker-patient-results');
+    });
   }
 
   // ── Patient Search & List ──────────────────────────────────
@@ -1082,6 +1451,7 @@
     if (prescribe) prescribe.clearCart();
 
     renderPatientHero(patient);
+    renderPatientSummary(patientId);
     showView('patient-detail');
     switchDetailTab('appointments');
 
@@ -1102,11 +1472,14 @@
     return ((p.first_name || p.firstname || '') + ' ' + (p.last_name || p.lastname || '')).trim() || 'Patient #' + (p.id != null ? p.id : '');
   }
 
-  function renderAppointmentPatientResultsFromList(patients, emptyMessage) {
-    var list = u.byId('appt-patient-results');
-    var idInput = u.byId('appt-patient-id');
-    if (!list || !idInput) return;
-    if (idInput.value) {
+  function renderAppointmentPatientResultsFromList(patients, emptyMessage, targetId) {
+    var listId = targetId || 'appt-patient-results';
+    var list = u.byId(listId);
+    // Derive the hidden input ID from the list ID pattern (appt-*-results → appt-*-id)
+    var idInputId = listId.replace(/-results$/, '-id');
+    var idInput = u.byId(idInputId);
+    if (!list) return;
+    if (idInput && idInput.value) {
       list.classList.add('hidden');
       list.innerHTML = '';
       return;
@@ -1179,7 +1552,195 @@
     var now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     u.byId('appt-date').value = now.toISOString().slice(0, 16);
+    u.byId('appt-date').required = true;
+    // Reset toggle to "Now"
+    u.$$('.appt-when-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.when === 'now'); });
+    var nowSection = u.byId('appt-when-now');
+    var slotSection = u.byId('appt-when-timeslot');
+    if (nowSection) nowSection.classList.remove('hidden');
+    if (slotSection) slotSection.classList.add('hidden');
+    var slotIdInput = u.byId('appt-timeslot-id');
+    if (slotIdInput) slotIdInput.value = '';
+    // Clear fee (optional — doctor chooses whether to charge)
+    var feeInput = u.byId('appt-fee');
+    if (feeInput) feeInput.value = '';
+    // Check for card on file
+    var paymentInfo = u.byId('appt-payment-info');
+    if (paymentInfo) { paymentInfo.classList.add('hidden'); paymentInfo.innerHTML = ''; }
+    if (preSelectedPatientId) {
+      checkPatientCard(preSelectedPatientId);
+    }
     openModal('modal-add-appointment');
+  }
+
+  var CONSULTATION_FEES = {
+    'Initial Consultation': { price: 59, productId: '1' },
+    'Follow Up Consultation': { price: 39, productId: '13' },
+  };
+
+  function updateApptFee() {
+    var typeSelect = u.byId('appt-type');
+    var feeInput = u.byId('appt-fee');
+    if (!typeSelect || !feeInput) return;
+    var entry = CONSULTATION_FEES[typeSelect.value];
+    var fee = entry ? entry.price : 0;
+    feeInput.value = fee > 0 ? fee.toFixed(2) : '';
+  }
+
+  var cachedPatientCards = null; // { patientId, cards[] }
+
+  function processAppointmentBilling(patientId, amount, productId, appointmentId) {
+    var card = cachedPatientCards && cachedPatientCards.patientId == patientId ? cachedPatientCards.defaultCard : null;
+    var billingOpts = {
+      contact_id: patientId,
+      amount: amount,
+      product_id: productId,
+      description: 'Consultation fee',
+      gateway_id: 4, // Live gateway
+      appointment_id: appointmentId,
+    };
+
+    if (card && card.id) {
+      // Charge card on file
+      billingOpts.cc_id = card.id;
+      data.chargeCard(billingOpts).then(function (result) {
+        var invoiceId = result && result.invoice_id;
+        u.showToast('Card charged $' + Number(amount).toFixed(2) + (invoiceId ? ' (Invoice #' + invoiceId + ')' : ''), 'success');
+      }).catch(function (err) {
+        console.error('Card charge failed, creating invoice instead:', err);
+        data.createInvoice(billingOpts).then(function (result) {
+          var invoiceId = result && result.invoice_id;
+          u.showToast('Card charge failed — unpaid invoice #' + (invoiceId || '?') + ' created', 'warning');
+        }).catch(function () {
+          u.showToast('Appointment created but billing failed', 'error');
+        });
+      });
+    } else {
+      // No card — create unpaid invoice
+      data.createInvoice(billingOpts).then(function (result) {
+        var invoiceId = result && result.invoice_id;
+        u.showToast('Unpaid invoice #' + (invoiceId || '?') + ' created for $' + Number(amount).toFixed(2), 'success');
+      }).catch(function (err) {
+        console.error('Invoice creation failed:', err);
+        u.showToast('Appointment created but invoice creation failed', 'error');
+      });
+    }
+  }
+
+  function checkPatientCard(patientId) {
+    var paymentInfo = u.byId('appt-payment-info');
+    if (!paymentInfo) return;
+    cachedPatientCards = null;
+    // Only show payment info if a fee is entered
+    var feeInput = u.byId('appt-fee');
+    var fee = feeInput ? parseFloat(feeInput.value) : 0;
+    if (!fee || fee <= 0) {
+      paymentInfo.classList.add('hidden');
+      paymentInfo.innerHTML = '';
+    } else {
+      paymentInfo.classList.remove('hidden');
+      paymentInfo.innerHTML = '<span class="text-muted">Checking card on file...</span>';
+    }
+    data.fetchCreditCards(patientId).then(function (cards) {
+      var active = cards.filter(function (c) {
+        var status = (c.card_status || c.status || '').toLowerCase();
+        return status.indexOf('active') !== -1;
+      });
+      if (active.length > 0) {
+        var card = active[0];
+        var last4 = card.card_number_last_4 || card.last4 || '****';
+        var type = card.card_type || 'Card';
+        cachedPatientCards = { patientId: patientId, cards: active, defaultCard: card };
+        if (fee > 0) paymentInfo.innerHTML = '<span class="chip chip-paid">' + u.escapeHtml(type) + ' ending ' + u.escapeHtml(last4) + '</span> will be charged';
+      } else {
+        cachedPatientCards = { patientId: patientId, cards: [], defaultCard: null };
+        if (fee > 0) paymentInfo.innerHTML = '<span class="text-muted">No card on file — an unpaid invoice will be created</span>';
+      }
+    }).catch(function () {
+      cachedPatientCards = { patientId: patientId, cards: [], defaultCard: null };
+    });
+  }
+
+  function updatePaymentInfo() {
+    var paymentInfo = u.byId('appt-payment-info');
+    if (!paymentInfo) return;
+    var feeInput = u.byId('appt-fee');
+    var fee = feeInput ? parseFloat(feeInput.value) : 0;
+    if (!fee || fee <= 0) {
+      paymentInfo.classList.add('hidden');
+      paymentInfo.innerHTML = '';
+      return;
+    }
+    paymentInfo.classList.remove('hidden');
+    if (cachedPatientCards && cachedPatientCards.defaultCard) {
+      var card = cachedPatientCards.defaultCard;
+      var last4 = card.card_number_last_4 || card.last4 || '****';
+      var type = card.card_type || 'Card';
+      paymentInfo.innerHTML = '<span class="chip chip-paid">' + u.escapeHtml(type) + ' ending ' + u.escapeHtml(last4) + '</span> will be charged $' + fee.toFixed(2);
+    } else if (cachedPatientCards) {
+      paymentInfo.innerHTML = '<span class="text-muted">No card on file — an unpaid invoice for $' + fee.toFixed(2) + ' will be created</span>';
+    }
+  }
+
+  function renderApptTimeslotList() {
+    var listEl = u.byId('appt-timeslot-list');
+    var emptyEl = u.byId('appt-timeslot-empty');
+    var slotIdInput = u.byId('appt-timeslot-id');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (slotIdInput) slotIdInput.value = '';
+    if (emptyEl) emptyEl.classList.add('hidden');
+    listEl.dataset.selectedTime = '';
+
+    // Ontraport field IDs for timeslot object
+    var F_START = 'f2125';
+    var F_END = 'f2126';
+    var F_STATUS = 'f2151';
+    var F_AVAIL = 'f2669';
+    var F_MAX = 'f2149';
+    // Open status code = 133
+    var OPEN_STATUS = '133';
+
+    var nowUnix = Math.floor(Date.now() / 1000);
+    var available = (cachedTimeslots || []).filter(function (slot) {
+      var startTime = Number(slot[F_START]) || 0;
+      var status = String(slot[F_STATUS] || '');
+      var max = Number(slot[F_MAX]) || 0;
+      var avail = Number(slot[F_AVAIL]) || max;
+      return startTime > nowUnix && status === OPEN_STATUS && avail > 0;
+    });
+
+    available.sort(function (a, b) {
+      return (Number(a[F_START]) || 0) - (Number(b[F_START]) || 0);
+    });
+
+    if (!available.length) {
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      return;
+    }
+
+    available.forEach(function (slot) {
+      var startTime = Number(slot[F_START]) || 0;
+      var endTime = Number(slot[F_END]) || 0;
+      var startDate = new Date(startTime * 1000);
+      var endDate = new Date(endTime * 1000);
+      var dateStr = startDate.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+      var timeRange = startDate.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }) +
+        ' - ' + endDate.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+      var avail = Number(slot[F_AVAIL]) || Number(slot[F_MAX]) || 0;
+
+      var div = document.createElement('div');
+      div.className = 'appt-timeslot-item';
+      div.dataset.timeslotId = slot.id;
+      div.dataset.startTime = String(startTime);
+      div.innerHTML =
+        '<div class="appt-timeslot-info">' +
+          '<span class="appt-timeslot-date">' + u.escapeHtml(dateStr) + '</span>' +
+          '<span class="appt-timeslot-time">' + u.escapeHtml(timeRange) + '</span>' +
+        '</div>' +
+        '<span class="appt-timeslot-avail">' + avail + ' spot' + (avail !== 1 ? 's' : '') + '</span>';
+      listEl.appendChild(div);
+    });
   }
 
   function phoneToE164(phone) {
@@ -1255,6 +1816,59 @@
       '<div class="hero-meta">' + metaItems.join('') + '</div>';
   }
 
+  function renderPatientSummary(patientId) {
+    var container = u.byId('patient-summary');
+    if (!container) return;
+    container.innerHTML = '<div class="loading-inline"><div class="loading-spinner loading-spinner-sm"></div></div>';
+
+    Promise.all([
+      data.fetchAppointments({ patient_id: patientId, doctor_id: doctorId }),
+      data.fetchScripts(patientId),
+      data.fetchClinicalNotes(patientId)
+    ]).then(function (results) {
+      var appts = results[0] || [];
+      var scripts = results[1] || [];
+      var notes = results[2] || [];
+
+      var nowUnix = Math.floor(Date.now() / 1000);
+
+      // Next appointment
+      var futureAppts = appts.filter(function (a) { return (a.appointment_time || 0) > nowUnix; });
+      futureAppts.sort(function (a, b) { return (a.appointment_time || 0) - (b.appointment_time || 0); });
+      var nextAppt = futureAppts[0];
+      var nextApptHtml = nextAppt
+        ? u.formatDate(nextAppt.appointment_time) + '<br><span class="summary-sub">' + u.escapeHtml(nextAppt.type || 'Appointment') + '</span>'
+        : '<span class="summary-sub">None scheduled</span>';
+
+      // Active scripts
+      var activeScripts = scripts.filter(function (s) {
+        var st = (s.script_status || '').toLowerCase();
+        return st !== 'archived' && st !== 'cancelled' && st !== 'fulfilled';
+      });
+      var lastScriptDate = scripts.length ? Math.max.apply(null, scripts.map(function (s) { return s.created_at || 0; })) : 0;
+      var activeScriptsHtml = '<strong>' + activeScripts.length + '</strong> active' +
+        (lastScriptDate ? '<br><span class="summary-sub">Last: ' + u.formatDate(lastScriptDate) + '</span>' : '');
+
+      // Clinical notes
+      var lastNoteDate = notes.length ? Math.max.apply(null, notes.map(function (n) { return n.created_at || 0; })) : 0;
+      var notesHtml = '<strong>' + notes.length + '</strong> total' +
+        (lastNoteDate ? '<br><span class="summary-sub">Last: ' + u.formatDate(lastNoteDate) + '</span>' : '');
+
+      // Patient since (earliest appointment)
+      var allTimes = appts.map(function (a) { return a.appointment_time || 0; }).filter(function (t) { return t > 0; });
+      var firstVisit = allTimes.length ? Math.min.apply(null, allTimes) : 0;
+      var sinceHtml = firstVisit ? u.formatDate(firstVisit) : '<span class="summary-sub">No visits yet</span>';
+
+      container.innerHTML =
+        '<div class="summary-tile"><div class="summary-label">Next Appointment</div><div class="summary-value">' + nextApptHtml + '</div></div>' +
+        '<div class="summary-tile"><div class="summary-label">Scripts</div><div class="summary-value">' + activeScriptsHtml + '</div></div>' +
+        '<div class="summary-tile"><div class="summary-label">Clinical Notes</div><div class="summary-value">' + notesHtml + '</div></div>' +
+        '<div class="summary-tile"><div class="summary-label">Patient Since</div><div class="summary-value">' + sinceHtml + '</div></div>';
+    }).catch(function () {
+      container.innerHTML = '';
+    });
+  }
+
   // ── Patient Appointments ───────────────────────────────────
 
   function loadPatientAppointments(patientId) {
@@ -1263,7 +1877,7 @@
     list.innerHTML = '<div class="loading-inline"><div class="loading-spinner loading-spinner-sm"></div><span>Loading...</span></div>';
     empty.classList.add('hidden');
 
-    data.fetchAppointments({ patient_id: patientId }).then(function (appts) {
+    data.fetchAppointments({ patient_id: patientId, doctor_id: doctorId }).then(function (appts) {
       appts.sort(function (a, b) { return (b.appointment_time || 0) - (a.appointment_time || 0); });
 
       if (!appts.length) {
@@ -1378,6 +1992,8 @@
     var timeStr = appt.appointment_time ? formatTime(appt.appointment_time) : '';
     var chip = getStatusChip(appt.status || '');
     var patientName = getPatientName(appt.patient_id);
+    var statusLower = (appt.status || '').toLowerCase();
+    var canEdit = statusLower !== 'completed' && statusLower !== 'cancelled';
 
     return (
       '<div class="record-card record-card-clickable appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '" style="margin-bottom:8px;cursor:pointer">' +
@@ -1387,6 +2003,133 @@
         '</div>' +
         '<div class="record-card-body">' +
           '<p>' + u.escapeHtml(appt.type || 'Appointment') + ' &middot; ' + dateStr + (timeStr ? ' at ' + timeStr : '') + '</p>' +
+        '</div>' +
+        (canEdit ? '<div class="appt-card-actions" onclick="event.stopPropagation()">' +
+          '<button class="btn btn-sm btn-ghost btn-edit-appt" data-appt-id="' + appt.id + '">Edit</button>' +
+          '<button class="btn btn-sm btn-danger-ghost btn-cancel-appt" data-appt-id="' + appt.id + '">Cancel</button>' +
+        '</div>' : '') +
+      '</div>'
+    );
+  }
+
+  function openEditAppointmentModal(appt) {
+    var typeSelect = u.byId('edit-appt-type');
+    var dateInput = u.byId('edit-appt-date');
+    var statusSelect = u.byId('edit-appt-status');
+    var idInput = u.byId('edit-appt-id');
+    if (!typeSelect || !dateInput || !statusSelect || !idInput) return;
+
+    idInput.value = String(appt.id);
+    typeSelect.value = appt.type || 'Initial Consultation';
+
+    // Convert unix timestamp to datetime-local format
+    if (appt.appointment_time) {
+      var d = new Date(parseInt(appt.appointment_time) * 1000);
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      dateInput.value = d.toISOString().slice(0, 16);
+    } else {
+      dateInput.value = '';
+    }
+
+    statusSelect.value = appt.status || 'Booked';
+    openModal('modal-edit-appointment');
+  }
+
+  function handleSaveAppointment() {
+    var idInput = u.byId('edit-appt-id');
+    var typeSelect = u.byId('edit-appt-type');
+    var dateInput = u.byId('edit-appt-date');
+    var statusSelect = u.byId('edit-appt-status');
+    if (!idInput || !idInput.value) return;
+
+    var apptId = Number(idInput.value);
+    var updates = {};
+    if (typeSelect) updates.type = typeSelect.value;
+    if (statusSelect) updates.status = statusSelect.value;
+    if (dateInput && dateInput.value) {
+      updates.appointment_time = Math.floor(new Date(dateInput.value).getTime() / 1000);
+    }
+
+    var btn = u.byId('btn-save-edit-appt');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+    data.updateAppointment(apptId, updates).then(function () {
+      closeModal('modal-edit-appointment');
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+      u.showToast('Appointment updated', 'success');
+      loadDoctorAppointments();
+      loadTodaySchedule();
+    }).catch(function () {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+      u.showToast('Failed to update appointment', 'error');
+    });
+  }
+
+  // ── Today's Schedule ───────────────────────────────────────
+
+  function loadTodaySchedule() {
+    var list = u.byId('today-list');
+    var empty = u.byId('today-empty');
+    var dateEl = u.byId('today-date');
+    if (!list) return;
+
+    // Set today's date header
+    var now = new Date();
+    if (dateEl) dateEl.textContent = now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+    var nowUnix = Math.floor(Date.now() / 1000);
+    var todayStart = getDayStart(nowUnix);
+    var todayEnd = todayStart + 86400;
+
+    var todayAppts = (cachedDoctorAppointments || []).filter(function (a) {
+      var t = a.appointment_time || 0;
+      var status = (a.status || '').toLowerCase();
+      return t >= todayStart && t < todayEnd && APPT_HIDDEN_STATUSES.indexOf(status) === -1;
+    });
+
+    // Sort chronologically (earliest first)
+    todayAppts.sort(function (a, b) { return (a.appointment_time || 0) - (b.appointment_time || 0); });
+
+    if (!todayAppts.length) {
+      list.innerHTML = '';
+      if (empty) empty.classList.remove('hidden');
+      return;
+    }
+    if (empty) empty.classList.add('hidden');
+
+    // Batch-fetch patient names
+    var patientIds = [];
+    todayAppts.forEach(function (a) { if (a.patient_id && patientIds.indexOf(a.patient_id) === -1) patientIds.push(a.patient_id); });
+    var fetches = patientIds.filter(function (pid) { return !getPatientName(pid) || getPatientName(pid) === 'Patient #' + pid; }).map(function (pid) {
+      return data.fetchPatientById(Number(pid)).then(function (p) {
+        if (p && !allPatients.some(function (ap) { return ap.id == p.id; })) allPatients.push(p);
+      }).catch(function () {});
+    });
+
+    Promise.all(fetches).then(function () {
+      list.innerHTML = todayAppts.map(function (appt) {
+        return renderTodayCard(appt, nowUnix);
+      }).join('');
+    });
+  }
+
+  function renderTodayCard(appt, nowUnix) {
+    var timeStr = appt.appointment_time ? formatTime(appt.appointment_time) : '';
+    var chip = getStatusChip(appt.status || '');
+    var patientName = getPatientName(appt.patient_id);
+    var isNext = appt.appointment_time && appt.appointment_time >= nowUnix;
+    var nextClass = isNext ? ' today-card-next' : ' today-card-past';
+
+    return (
+      '<div class="today-card' + nextClass + ' appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '">' +
+        '<div class="today-card-time">' + u.escapeHtml(timeStr) + '</div>' +
+        '<div class="today-card-info">' +
+          '<div class="today-card-patient">' + u.escapeHtml(patientName) + '</div>' +
+          '<div class="today-card-type">' + u.escapeHtml(appt.type || 'Appointment') + '</div>' +
+        '</div>' +
+        '<div class="today-card-right">' +
+          chip +
+          '<button class="btn btn-sm btn-primary today-card-open">Open</button>' +
         '</div>' +
       '</div>'
     );
@@ -1408,7 +2151,7 @@
     list.innerHTML = '<div class="loading-inline"><div class="loading-spinner loading-spinner-sm"></div><span>Loading notes...</span></div>';
     if (empty) empty.classList.add('hidden');
 
-    // Fetch notes, scripts, and appointments in parallel
+    // Fetch notes, scripts, and ALL appointments (unscoped — need other doctors' appts for timeline context)
     Promise.all([
       data.fetchClinicalNotes(patientId),
       data.fetchScripts(patientId),
@@ -1425,6 +2168,30 @@
         return;
       }
 
+      // Fetch doctor names for appointments (batch lookup unique doctor IDs)
+      var doctorIds = [];
+      appointments.forEach(function (a) {
+        if (a.doctor_id && doctorIds.indexOf(a.doctor_id) === -1) doctorIds.push(a.doctor_id);
+      });
+      var doctorNameMap = {};
+      var doctorFetches = doctorIds.map(function (did) {
+        // Check allPatients first (the logged-in doctor may be there)
+        var cached = allPatients.find(function (p) { return p.id == did; });
+        if (cached) { doctorNameMap[did] = 'Dr. ' + ((cached.first_name || '') + ' ' + (cached.last_name || '')).trim(); return Promise.resolve(); }
+        return data.fetchPatientById(Number(did)).then(function (doc) {
+          if (doc) doctorNameMap[did] = 'Dr. ' + ((doc.first_name || '') + ' ' + (doc.last_name || '')).trim();
+        }).catch(function () {});
+      });
+      Promise.all(doctorFetches).then(function () {
+        _renderNotesTimeline(list, empty, notes, scripts, appointments, doctorNameMap);
+      });
+    }).catch(function (err) {
+      console.error('Failed to load notes timeline:', err);
+      list.innerHTML = '<div class="empty-state-sm" style="color:var(--brand-error)">Failed to load</div>';
+    });
+  }
+
+  function _renderNotesTimeline(list, empty, notes, scripts, appointments, doctorNameMap) {
       // Group notes and scripts by appointment_id
       var notesByAppt = {};
       var scriptsByAppt = {};
@@ -1482,6 +2249,9 @@
         html += '<div class="timeline-marker-content">';
         html += '<span class="timeline-date">' + (appt ? u.formatDate(appt.appointment_time) : 'Unknown date') + '</span>';
         html += '<span class="timeline-type">' + u.escapeHtml(appt ? (appt.type || 'Appointment') : 'Appointment #' + apptId) + '</span>';
+        if (appt && appt.doctor_id && doctorNameMap[appt.doctor_id]) {
+          html += '<span class="timeline-doctor">' + u.escapeHtml(doctorNameMap[appt.doctor_id]) + '</span>';
+        }
         var noteCount = apptNotes.length;
         var scriptCount = apptScripts.length;
         html += '<span class="timeline-counts">' + noteCount + ' note' + (noteCount !== 1 ? 's' : '') + ', ' + scriptCount + ' script' + (scriptCount !== 1 ? 's' : '') + '</span>';
@@ -1527,10 +2297,6 @@
 
       list.innerHTML = html;
       if (empty) empty.classList.add('hidden');
-    }).catch(function (err) {
-      console.error('Failed to load notes:', err);
-      list.innerHTML = '<div class="empty-state-sm" style="color:var(--brand-error)">Failed to load clinical notes</div>';
-    });
   }
 
   function renderNoteCard(note) {
@@ -1618,7 +2384,10 @@
     html += '<button class="script-sub-tab active" data-script-tab="open">Open (' + open.length + ')</button>';
     html += '<button class="script-sub-tab" data-script-tab="past">Past (' + past.length + ')</button>';
     html += '</div>';
-    html += '<button class="btn btn-sm btn-ghost btn-bulk-archive hidden">Archive Selected</button>';
+    html += '<div class="scripts-bulk-actions hidden">';
+    html += '<button class="btn btn-sm btn-primary btn-bulk-represcribe">Re-prescribe Selected</button>';
+    html += '<button class="btn btn-sm btn-ghost btn-bulk-archive">Archive Selected</button>';
+    html += '</div>';
     html += '</div>';
 
     // Open scripts panel
@@ -1652,6 +2421,42 @@
         card.classList.toggle('script-card-expanded');
       }
     };
+
+    // Bind archive buttons directly (event delegation to document is unreliable here)
+    container.querySelectorAll('.btn-archive-script').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var scriptId = btn.dataset.scriptId;
+        var scriptName = btn.dataset.scriptName || 'this script';
+        btn.disabled = true;
+        btn.textContent = 'Archiving...';
+        data.updateScript(scriptId, { status: 'Archived' }).then(function () {
+          u.showToast('"' + scriptName + '" archived', 'success');
+          var card = btn.closest('.script-card');
+          if (card) card.remove();
+          updateScriptTabCounts(btn);
+        }).catch(function (err) {
+          console.error('Failed to archive script:', err);
+          u.showToast('Failed to archive script', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Archive';
+        });
+      });
+    });
+
+    // Bind re-prescribe buttons directly
+    container.querySelectorAll('.btn-represcribe').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var drugId = parseInt(btn.dataset.drugId);
+        var item = enrichedItemsCache.find(function (i) { return i.id === drugId; }) || itemsMap[drugId];
+        if (item) {
+          requireAppointmentContext(item, null);
+        } else {
+          u.showToast('Product data not found', 'error');
+        }
+      });
+    });
   }
 
   function renderScriptCard(script, opts) {
@@ -1702,9 +2507,9 @@
     // Action buttons
     if (opts.showActions) {
       html += '<div class="script-card-actions">';
-      html += '<button class="btn btn-sm btn-primary btn-represcribe" data-drug-id="' + (script.drug_id || '') + '" data-script-id="' + script.id + '" onclick="event.stopPropagation()">Re-prescribe</button>';
+      html += '<button class="btn btn-sm btn-primary btn-represcribe" data-drug-id="' + (script.drug_id || '') + '" data-script-id="' + script.id + '">Re-prescribe</button>';
       if (!opts.isPast) {
-        html += '<button class="btn btn-sm btn-ghost btn-archive-script" data-script-id="' + script.id + '" data-script-name="' + u.escapeHtml(drugName) + '" onclick="event.stopPropagation()">Archive</button>';
+        html += '<button class="btn btn-sm btn-ghost btn-archive-script" data-script-id="' + script.id + '" data-script-name="' + u.escapeHtml(drugName) + '">Archive</button>';
       }
       html += '</div>';
     }
@@ -2031,6 +2836,14 @@
     currentPatientIntake = null;
     currentRecommendations = null;
     if (prescribe) prescribe.clearCart();
+    // If there are pending prescribe items from the appointment picker, add them after clearing cart
+    if (pendingPrescribeItem && prescribe) {
+      var pendingItems = pendingPrescribeItem;
+      pendingPrescribeItem = null;
+      pendingItems.forEach(function (entry) { prescribe.addToCart(entry.item, entry.recommendation); });
+      var names = pendingItems.map(function (e) { return e.item.item_name || 'Product'; });
+      u.showToast('"' + names.join('", "') + '" added to prescription cart', 'success');
+    }
     // Reset workspace patient tabs
     wpTabsLoaded = { appointments: false, notes: false, scripts: false };
     u.$$('.wp-tab-btn').forEach(function (b) { b.classList.remove('active'); });
@@ -2066,7 +2879,7 @@
     // Load everything in parallel (include patient lookup if not cached)
     var cachedPatient = allPatients.find(function (p) { return p.id == patientId; });
     Promise.all([
-      data.fetchAppointments({ patient_id: patientId }),
+      data.fetchAppointments({ patient_id: patientId, doctor_id: doctorId }),
       data.fetchPatientIntake(patientId),
       data.fetchClinicalNoteByAppointment(appointmentId),
       data.fetchScripts(patientId),
@@ -2270,7 +3083,7 @@
     if (!list) return;
     list.innerHTML = '<div class="loading-inline"><div class="loading-spinner loading-spinner-sm"></div><span>Loading...</span></div>';
     if (empty) empty.classList.add('hidden');
-    data.fetchAppointments({ patient_id: patientId }).then(function (appts) {
+    data.fetchAppointments({ patient_id: patientId, doctor_id: doctorId }).then(function (appts) {
       appts.sort(function (a, b) { return (b.appointment_time || 0) - (a.appointment_time || 0); });
       if (!appts.length) { list.innerHTML = ''; if (empty) empty.classList.remove('hidden'); return; }
       list.innerHTML = appts.map(function (appt) {
@@ -3133,8 +3946,8 @@
       var item = enrichedItemsCache.find(function (i) { return i.id === itemId; }) || itemsMap[itemId];
       if (item) {
         var rec = currentRecommendations ? currentRecommendations.find(function (r) { return r.id === itemId; }) : null;
-        prescribe.addToCart(item, rec);
-        refreshPrescribeViews();
+        requireAppointmentContext(item, rec);
+        if (currentAppointmentId) refreshPrescribeViews();
       }
       return;
     }
@@ -3708,20 +4521,54 @@
     btn.disabled = true;
     btn.textContent = 'Creating...';
 
-    var dateVal = u.byId('appt-date').value;
-    var apptTime = dateVal ? Math.floor(new Date(dateVal).getTime() / 1000) : 0;
+    // Determine appointment time: from date input or selected timeslot
+    var apptTime = 0;
+    var timeslotId = null;
+    var activeWhen = document.querySelector('.appt-when-btn.active');
+    var mode = activeWhen ? activeWhen.dataset.when : 'now';
+
+    if (mode === 'timeslot') {
+      var slotIdInput = u.byId('appt-timeslot-id');
+      var slotList = u.byId('appt-timeslot-list');
+      timeslotId = slotIdInput && slotIdInput.value ? Number(slotIdInput.value) : null;
+      apptTime = slotList && slotList.dataset.selectedTime ? Number(slotList.dataset.selectedTime) : 0;
+      if (!timeslotId || !apptTime) {
+        u.showToast('Please select a timeslot', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Create Appointment';
+        return;
+      }
+    } else {
+      var dateVal = u.byId('appt-date').value;
+      apptTime = dateVal ? Math.floor(new Date(dateVal).getTime() / 1000) : 0;
+    }
+
+    var apptType = u.byId('appt-type').value;
+    var feeInput = u.byId('appt-fee');
+    var feeAmount = feeInput ? parseFloat(feeInput.value) : 0;
 
     var payload = {
-      type: u.byId('appt-type').value,
+      type: apptType,
       patient_id: patientId,
       appointment_time: apptTime,
       status: 'Booked',
     };
 
+    if (timeslotId) payload.timeslot_id = timeslotId;
     if (doctorId) payload.doctor_id = Number(doctorId);
+    if (feeAmount > 0) payload.fee = feeAmount.toFixed(2);
 
     data.createAppointment(payload).then(function (result) {
-      u.showToast('Appointment created', 'success');
+      var newApptId = result && (result.id || (result.attrs && result.attrs.id));
+
+      // Process billing if fee was entered
+      if (feeAmount > 0) {
+        var feeEntry = CONSULTATION_FEES[apptType] || { price: feeAmount, productId: '0' };
+        processAppointmentBilling(patientId, feeAmount, feeEntry.productId, newApptId);
+      } else {
+        u.showToast('Appointment created', 'success');
+      }
+
       closeModal('modal-add-appointment');
       u.byId('form-add-appointment').reset();
       var searchEl = u.byId('appt-patient-search');
@@ -3732,10 +4579,9 @@
       if (resultsEl) { resultsEl.classList.add('hidden'); resultsEl.innerHTML = ''; }
 
       loadDoctorAppointments();
-      loadPatientAppointments(patientId);
+      loadTodaySchedule();
 
       // Open the new appointment in the workspace
-      var newApptId = result && (result.id || (result.attrs && result.attrs.id));
       if (newApptId && patientId) {
         openAppointmentWorkspace(newApptId, patientId);
       }

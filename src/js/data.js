@@ -368,6 +368,7 @@
     status: 'f2148',        // 138=Booked, 131=Paid, 150=Completed, 129=Cancelled
     type: 'f2570',          // 237=Initial Consultation, 236=Follow Up Consultation
     fee: 'f2579',
+    timeslot_id: 'f2672',
     date_booked: 'f2144',   // timestamp — date the appointment was created
     immediate: 'f3336',     // checkbox — appointment created from clinician portal
   };
@@ -417,6 +418,14 @@
     upload: 'f3092'
   };
 
+  // Ontraport field mapping for Doctor Preferences (Contact objectID 0)
+  var DOCTOR_PREF_FIELDS = {
+    default_repeats: 'f3365',
+    default_interval_days: 'f3366',
+    calendar_view_start: 'f3367',
+    calendar_view_end: 'f3368',
+  };
+
   /** Ontraport API call via authenticated server-side proxy */
   function ontraportRequest(method, endpoint, body) {
     return fetch(API_BASE + '/api/clinician/ontraport', {
@@ -428,7 +437,10 @@
       if (!res.ok) throw new Error('Ontraport API error: ' + res.status);
       return res.json();
     }).then(function (json) {
-      if (json.code !== 0) throw new Error('Ontraport error code: ' + json.code);
+      if (json.code !== 0) {
+        console.error('Ontraport API error:', json);
+        throw new Error('Ontraport error code: ' + json.code + (json.message ? ' — ' + json.message : ''));
+      }
       return json.data;
     });
   }
@@ -462,7 +474,21 @@
     payload[APPT_FIELDS.type] = APPT_TYPE[apptData.type] || APPT_TYPE['Initial Consultation'];
     payload[APPT_FIELDS.date_booked] = Math.floor(Date.now() / 1000);
     payload[APPT_FIELDS.immediate] = 1;
+    if (apptData.timeslot_id) payload[APPT_FIELDS.timeslot_id] = apptData.timeslot_id;
+    if (apptData.fee) payload[APPT_FIELDS.fee] = apptData.fee;
     return ontraportRequest('POST', '/objects', payload);
+  }
+
+  function updateAppointment(appointmentId, apptData) {
+    var payload = { id: appointmentId, objectID: 10001 };
+    if (apptData.status != null) payload[APPT_FIELDS.status] = APPT_STATUS[apptData.status] || apptData.status;
+    if (apptData.type != null) payload[APPT_FIELDS.type] = APPT_TYPE[apptData.type] || apptData.type;
+    if (apptData.appointment_time != null) payload[APPT_FIELDS.appointment_time] = apptData.appointment_time;
+    return ontraportRequest('PUT', '/objects', payload);
+  }
+
+  function cancelAppointment(appointmentId) {
+    return updateAppointment(appointmentId, { status: 'Cancelled' });
   }
 
   /** Fetch timeslots for a doctor via Ontraport API. */
@@ -585,6 +611,108 @@
     return ontraportRequest('PUT', '/objects', payload);
   }
 
+  // ── Doctor Preferences ──────────────────────────────────────
+
+  function fetchDoctorPreferences(doctorId) {
+    return ontraportRequest('GET', '/object?objectID=0&id=' + encodeURIComponent(doctorId))
+      .then(function (raw) {
+        if (!raw || !raw.data) return {};
+        var d = raw.data;
+        var prefs = {};
+        for (var key in DOCTOR_PREF_FIELDS) {
+          var fid = DOCTOR_PREF_FIELDS[key];
+          if (d[fid] != null && d[fid] !== '') prefs[key] = d[fid];
+        }
+        return prefs;
+      });
+  }
+
+  function saveDoctorPreferences(doctorId, prefs) {
+    var fields = {};
+    for (var key in prefs) {
+      if (DOCTOR_PREF_FIELDS[key]) fields[DOCTOR_PREF_FIELDS[key]] = prefs[key];
+    }
+    return updatePatientIntake(doctorId, fields);
+  }
+
+  // ── Billing ────────────────────────────────────────────────
+
+  /** Fetch credit cards on file for a contact. Returns array of card objects. */
+  function fetchCreditCards(contactId) {
+    var condition = encodeURIComponent(
+      JSON.stringify([{ field: { field: 'contact_id' }, op: '=', value: { value: String(contactId) } }])
+    );
+    return ontraportRequest('GET', '/CreditCards?range=50&count=false&condition=' + condition)
+      .then(function (raw) {
+        return Array.isArray(raw) ? raw : (raw && Array.isArray(raw.data)) ? raw.data : [];
+      });
+  }
+
+  /**
+   * Process a payment (charge card on file).
+   * @param {object} opts - { contact_id, cc_id, amount, description, gateway_id, appointment_id }
+   */
+  function chargeCard(opts) {
+    var payload = {
+      contact_id: String(opts.contact_id),
+      chargeNow: 'chargeNow',
+      trans_date: Date.now(),
+      invoice_template: 1,
+      gateway_id: opts.gateway_id || 1,
+      cc_id: opts.cc_id,
+      offer: {
+        products: [{
+          id: String(opts.product_id || '0'),
+          quantity: 1,
+          price: Number(opts.amount).toFixed(2),
+          total: Number(opts.amount).toFixed(2),
+          type: 'one_time',
+          taxable: false,
+          shipping: false,
+        }],
+        shipping: [],
+        subTotal: Number(opts.amount).toFixed(2),
+        grandTotal: Number(opts.amount).toFixed(2),
+        discountTotal: '0.00',
+      },
+      external_order_id: opts.appointment_id ? 'APPT-' + opts.appointment_id : 'CLIN-' + Date.now(),
+    };
+    return ontraportRequest('POST', '/transaction/processManual', payload);
+  }
+
+  /**
+   * Create an unpaid invoice (no card charge).
+   * @param {object} opts - { contact_id, amount, description, gateway_id, appointment_id }
+   */
+  function createInvoice(opts) {
+    var payload = {
+      contact_id: String(opts.contact_id),
+      chargeNow: 'requestPayment',
+      gateway_id: opts.gateway_id || 1,
+      send_invoice: false,
+      trans_date: Date.now(),
+      due_on: 14,
+      offer: {
+        products: [{
+          id: String(opts.product_id || '0'),
+          quantity: 1,
+          price: Number(opts.amount).toFixed(2),
+          total: Number(opts.amount).toFixed(2),
+          type: 'one_time',
+          taxable: false,
+          shipping: false,
+        }],
+        shipping: [],
+        subTotal: Number(opts.amount).toFixed(2),
+        grandTotal: Number(opts.amount).toFixed(2),
+        discountTotal: '0.00',
+      },
+      customer_note: opts.description || 'Consultation fee',
+      external_order_id: opts.appointment_id ? 'APPT-' + opts.appointment_id : 'CLIN-' + Date.now(),
+    };
+    return ontraportRequest('POST', '/transaction/processManual', payload);
+  }
+
   // ── Expose ─────────────────────────────────────────────────
 
   window.AppData = {
@@ -600,6 +728,8 @@
     updatePatientIntake: updatePatientIntake,
     createPatient: createPatient,
     createAppointment: createAppointment,
+    updateAppointment: updateAppointment,
+    cancelAppointment: cancelAppointment,
     createScript: createScript,
     updateScript: updateScript,
     deleteScript: deleteScript,
@@ -612,6 +742,11 @@
     deleteTimeslot: deleteTimeslot,
     SCRIPT_STATUS: SCRIPT_STATUS,
     callGemini: callGemini,
+    fetchDoctorPreferences: fetchDoctorPreferences,
+    saveDoctorPreferences: saveDoctorPreferences,
+    fetchCreditCards: fetchCreditCards,
+    chargeCard: chargeCard,
+    createInvoice: createInvoice,
   };
 
   // ── Gemini Flash API (via authenticated server-side proxy) ──

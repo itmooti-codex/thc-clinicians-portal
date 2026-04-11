@@ -236,6 +236,16 @@ h1, h2, h3, h4 {
   border-bottom: 1px solid var(--brand-border);
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.header-logo {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+}
 .header-title {
   font-size: 22px;
   color: var(--brand-secondary);
@@ -849,6 +859,265 @@ a.record-card-link:hover {
   justify-content: flex-end;
   gap: 10px;
   padding-top: 20px;
+}
+
+/* ── Appointment When Toggle ─────────────────────────────────── */
+.appt-when-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--brand-border, #e2e8f0);
+  border-radius: var(--radius, 12px);
+  overflow: hidden;
+  width: fit-content;
+}
+.appt-when-btn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--brand-card-bg, #fff);
+  color: var(--brand-text-muted, #718096);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.appt-when-btn:not(:last-child) {
+  border-right: 1px solid var(--brand-border, #e2e8f0);
+}
+.appt-when-btn.active {
+  background: var(--brand-primary, #20c0c0);
+  color: #fff;
+}
+.appt-timeslot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+.appt-timeslot-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border: 2px solid var(--brand-border, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.appt-timeslot-item:hover {
+  border-color: var(--brand-primary, #20c0c0);
+  background: var(--brand-primary-light, #e0f7f7);
+}
+.appt-timeslot-item.selected {
+  border-color: var(--brand-primary, #20c0c0);
+  background: var(--brand-primary-light, #e0f7f7);
+}
+.appt-timeslot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.appt-timeslot-date {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--brand-text, #1a1a2e);
+}
+.appt-timeslot-time {
+  font-size: 13px;
+  color: var(--brand-text-muted, #718096);
+}
+.appt-timeslot-avail {
+  font-size: 12px;
+  color: var(--brand-primary-dark, #1a9e9e);
+  font-weight: 500;
+}
+
+/* ── Appointment Payment Info ────────────────────────────────── */
+.appt-payment-info {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--brand-bg, #f7fafa);
+  border: 1px solid var(--brand-border, #e2e8f0);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+/* ── Appointment Card Actions ────────────────────────────────── */
+.appt-card-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 12px;
+  justify-content: flex-end;
+}
+
+/* ── Patient Summary Tiles ───────────────────────────────────── */
+.patient-summary {
+  display: flex;
+  gap: 12px;
+  margin: 12px 0 16px;
+  flex-wrap: wrap;
+}
+.summary-tile {
+  flex: 1;
+  min-width: 140px;
+  background: var(--brand-card-bg, #fff);
+  border: 1px solid var(--brand-border, #e2e8f0);
+  border-radius: var(--radius, 12px);
+  padding: 14px 16px;
+}
+.summary-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--brand-text-muted, #718096);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.summary-value {
+  font-size: 14px;
+  color: var(--brand-text, #1a1a2e);
+  line-height: 1.4;
+}
+.summary-sub {
+  font-size: 12px;
+  color: var(--brand-text-muted, #718096);
+  font-weight: 400;
+}
+
+/* ── Today's Schedule ────────────────────────────────────────── */
+.today-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 800px;
+}
+.today-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--brand-card-bg, #fff);
+  border: 1px solid var(--brand-border, #e2e8f0);
+  border-radius: var(--radius, 12px);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.today-card:hover {
+  border-color: var(--brand-primary, #20c0c0);
+  box-shadow: 0 2px 8px rgba(32, 192, 192, 0.1);
+}
+.today-card-next {
+  border-left: 3px solid var(--brand-primary, #20c0c0);
+}
+.today-card-past {
+  opacity: 0.6;
+}
+.today-card-time {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--brand-text, #1a1a2e);
+  min-width: 70px;
+  font-variant-numeric: tabular-nums;
+}
+.today-card-info {
+  flex: 1;
+  min-width: 0;
+}
+.today-card-patient {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--brand-text, #1a1a2e);
+}
+.today-card-type {
+  font-size: 13px;
+  color: var(--brand-text-muted, #718096);
+  margin-top: 2px;
+}
+.today-card-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.today-card-open {
+  white-space: nowrap;
+}
+
+/* ── Settings Page ───────────────────────────────────────────── */
+.settings-page {
+  max-width: 720px;
+  padding: 24px 0;
+}
+.settings-section {
+  background: var(--brand-card-bg, #fff);
+  border: 1px solid var(--brand-border, #e2e8f0);
+  border-radius: var(--radius, 12px);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.settings-section-title {
+  font-family: var(--font-heading, 'Lora', serif);
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+  color: var(--brand-text, #1a1a2e);
+}
+.settings-section-desc {
+  font-size: 0.85rem;
+  color: var(--brand-text-muted, #718096);
+  margin: 0 0 16px;
+}
+.settings-fields .form-row { margin-bottom: 0; }
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── Appointment Picker ──────────────────────────────────────── */
+.appt-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.appt-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1px solid var(--brand-border, #e2e8f0);
+  border-radius: var(--radius, 12px);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: var(--brand-card-bg, #fff);
+}
+.appt-picker-item:hover {
+  border-color: var(--brand-primary, #20c0c0);
+  background: var(--brand-primary-light, #e0f7f7);
+}
+.appt-picker-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.appt-picker-item-type {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--brand-text, #1a1a2e);
+}
+.appt-picker-item-time {
+  font-size: 13px;
+  color: var(--brand-text-muted, #718096);
+}
+.appt-picker-item-status {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: var(--brand-bg, #f7fafa);
+  color: var(--brand-text-muted, #718096);
 }
 
 /* ── Forms ────────────────────────────────────────────────────── */
@@ -1509,6 +1778,11 @@ a.record-card-link:hover {
   justify-content: space-between;
   margin-bottom: 10px;
 }
+.scripts-bulk-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
 .scripts-sub-tabs {
   display: flex;
   gap: 2px;
@@ -2106,6 +2380,11 @@ a.record-card-link:hover {
 .timeline-type {
   font-size: 13px;
   color: var(--brand-text-muted, #6b7280);
+}
+.timeline-doctor {
+  font-size: 12px;
+  color: var(--brand-primary-dark, #1a9e9e);
+  font-weight: 500;
 }
 .timeline-counts {
   font-size: 11px;
