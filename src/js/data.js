@@ -434,14 +434,19 @@
       body: JSON.stringify({ method: method, endpoint: endpoint, body: body }),
     }).then(function (res) {
       if (res.status === 401) { window.ClinicianAuth && window.ClinicianAuth.logout(); throw new Error('Session expired'); }
-      if (!res.ok) throw new Error('Ontraport API error: ' + res.status);
+      if (!res.ok) {
+        return res.text().then(function (body) {
+          console.error('Ontraport API HTTP error:', res.status, body);
+          throw new Error('Ontraport API error: ' + res.status + ' — ' + body);
+        });
+      }
       return res.json();
     }).then(function (json) {
-      if (json.code !== 0) {
+      if (json.code != null && json.code !== 0) {
         console.error('Ontraport API error:', json);
         throw new Error('Ontraport error code: ' + json.code + (json.message ? ' — ' + json.message : ''));
       }
-      return json.data;
+      return json.data || json;
     });
   }
 
@@ -474,7 +479,7 @@
     payload[APPT_FIELDS.type] = APPT_TYPE[apptData.type] || APPT_TYPE['Initial Consultation'];
     payload[APPT_FIELDS.date_booked] = Math.floor(Date.now() / 1000);
     payload[APPT_FIELDS.immediate] = 1;
-    if (apptData.timeslot_id) payload[APPT_FIELDS.timeslot_id] = apptData.timeslot_id;
+    if (apptData.timeslot_id) payload[APPT_FIELDS.timeslot_id] = String(apptData.timeslot_id);
     if (apptData.fee) payload[APPT_FIELDS.fee] = apptData.fee;
     return ontraportRequest('POST', '/objects', payload);
   }
@@ -685,6 +690,7 @@
    * @param {object} opts - { contact_id, amount, description, gateway_id, appointment_id }
    */
   function createInvoice(opts) {
+    var amt = Number(opts.amount);
     var payload = {
       contact_id: String(opts.contact_id),
       chargeNow: 'requestPayment',
@@ -696,16 +702,16 @@
         products: [{
           id: String(opts.product_id || '0'),
           quantity: 1,
-          price: Number(opts.amount).toFixed(2),
-          total: Number(opts.amount).toFixed(2),
-          type: 'one_time',
+          owner: 1,
+          type: 'single',
           taxable: false,
           shipping: false,
+          price: [{ price: amt, payment_count: 0, id: 1 }],
+          total: amt,
         }],
         shipping: [],
-        subTotal: Number(opts.amount).toFixed(2),
-        grandTotal: Number(opts.amount).toFixed(2),
-        discountTotal: '0.00',
+        subTotal: amt,
+        grandTotal: amt,
       },
       customer_note: opts.description || 'Consultation fee',
       external_order_id: opts.appointment_id ? 'APPT-' + opts.appointment_id : 'CLIN-' + Date.now(),

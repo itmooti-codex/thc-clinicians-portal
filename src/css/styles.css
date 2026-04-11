@@ -943,6 +943,40 @@ a.record-card-link:hover {
   margin-bottom: 8px;
 }
 
+.payment-method-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.payment-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--brand-text, #1a1a2e);
+}
+.payment-option input[type="radio"] {
+  accent-color: var(--brand-primary, #20c0c0);
+}
+.payment-cards {
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.card-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.card-option input[type="radio"] {
+  accent-color: var(--brand-primary, #20c0c0);
+}
+
 /* ── Appointment Card Actions ────────────────────────────────── */
 .appt-card-actions {
   display: flex;

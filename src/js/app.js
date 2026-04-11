@@ -370,6 +370,20 @@
     if (apptFeeInput) {
       apptFeeInput.addEventListener('input', updatePaymentInfo);
     }
+    // Payment method radio toggle
+    var paymentInfoEl = u.byId('appt-payment-info');
+    if (paymentInfoEl) {
+      paymentInfoEl.addEventListener('change', function (e) {
+        if (e.target.name === 'appt-payment-method') {
+          selectedPaymentMethod = e.target.value;
+          var cardList = u.byId('appt-card-list');
+          if (cardList) cardList.classList.toggle('hidden', selectedPaymentMethod !== 'card');
+        }
+        if (e.target.name === 'appt-card' && cachedPatientCards) {
+          cachedPatientCards.selectedCardIdx = parseInt(e.target.value);
+        }
+      });
+    }
 
     // Add timeslot
     u.byId('btn-add-timeslot').addEventListener('click', function () {
@@ -1564,6 +1578,7 @@
     // Clear fee (optional — doctor chooses whether to charge)
     var feeInput = u.byId('appt-fee');
     if (feeInput) feeInput.value = '';
+    selectedPaymentMethod = 'card'; // reset to card as default choice
     // Check for card on file
     var paymentInfo = u.byId('appt-payment-info');
     if (paymentInfo) { paymentInfo.classList.add('hidden'); paymentInfo.innerHTML = ''; }
@@ -1590,7 +1605,6 @@
   var cachedPatientCards = null; // { patientId, cards[] }
 
   function processAppointmentBilling(patientId, amount, productId, appointmentId) {
-    var card = cachedPatientCards && cachedPatientCards.patientId == patientId ? cachedPatientCards.defaultCard : null;
     var billingOpts = {
       contact_id: patientId,
       amount: amount,
@@ -1600,29 +1614,36 @@
       appointment_id: appointmentId,
     };
 
-    if (card && card.id) {
-      // Charge card on file
-      billingOpts.cc_id = card.id;
+    // Determine selected card (if charging)
+    var selectedCard = null;
+    if (selectedPaymentMethod === 'card' && cachedPatientCards && cachedPatientCards.cards.length > 0) {
+      var idx = cachedPatientCards.selectedCardIdx;
+      if (idx != null) {
+        selectedCard = cachedPatientCards.cards[idx];
+      } else {
+        // Use default card, or first active
+        selectedCard = cachedPatientCards.cards.find(function (c) { return (c.card_status || '').indexOf('Default') !== -1; }) || cachedPatientCards.cards[0];
+      }
+    }
+
+    if (selectedPaymentMethod === 'card' && selectedCard && selectedCard.id) {
+      // Charge selected card
+      billingOpts.cc_id = selectedCard.id;
       data.chargeCard(billingOpts).then(function (result) {
         var invoiceId = result && result.invoice_id;
         u.showToast('Card charged $' + Number(amount).toFixed(2) + (invoiceId ? ' (Invoice #' + invoiceId + ')' : ''), 'success');
       }).catch(function (err) {
-        console.error('Card charge failed, creating invoice instead:', err);
-        data.createInvoice(billingOpts).then(function (result) {
-          var invoiceId = result && result.invoice_id;
-          u.showToast('Card charge failed — unpaid invoice #' + (invoiceId || '?') + ' created', 'warning');
-        }).catch(function () {
-          u.showToast('Appointment created but billing failed', 'error');
-        });
+        console.error('Card charge failed:', err);
+        u.showToast('Card charge failed: ' + (err.message || 'Unknown error'), 'error');
       });
     } else {
-      // No card — create unpaid invoice
+      // Send unpaid invoice
       data.createInvoice(billingOpts).then(function (result) {
         var invoiceId = result && result.invoice_id;
         u.showToast('Unpaid invoice #' + (invoiceId || '?') + ' created for $' + Number(amount).toFixed(2), 'success');
       }).catch(function (err) {
         console.error('Invoice creation failed:', err);
-        u.showToast('Appointment created but invoice creation failed', 'error');
+        u.showToast('Invoice creation failed: ' + (err.message || 'Unknown error'), 'error');
       });
     }
   }
@@ -1661,6 +1682,8 @@
     });
   }
 
+  var selectedPaymentMethod = 'card'; // 'card' or 'invoice'
+
   function updatePaymentInfo() {
     var paymentInfo = u.byId('appt-payment-info');
     if (!paymentInfo) return;
@@ -1672,12 +1695,28 @@
       return;
     }
     paymentInfo.classList.remove('hidden');
-    if (cachedPatientCards && cachedPatientCards.defaultCard) {
-      var card = cachedPatientCards.defaultCard;
-      var last4 = card.card_number_last_4 || card.last4 || '****';
-      var type = card.card_type || 'Card';
-      paymentInfo.innerHTML = '<span class="chip chip-paid">' + u.escapeHtml(type) + ' ending ' + u.escapeHtml(last4) + '</span> will be charged $' + fee.toFixed(2);
+    if (cachedPatientCards && cachedPatientCards.cards && cachedPatientCards.cards.length > 0) {
+      var html = '<div class="payment-method-choice">';
+      html += '<label class="payment-option"><input type="radio" name="appt-payment-method" value="card" ' + (selectedPaymentMethod === 'card' ? 'checked' : '') + '> Charge card on file</label>';
+      // Show available cards
+      html += '<div class="payment-cards' + (selectedPaymentMethod !== 'card' ? ' hidden' : '') + '" id="appt-card-list">';
+      cachedPatientCards.cards.forEach(function (card, idx) {
+        var last4 = card.card_number_last_4 || card.last4 || '****';
+        var type = card.card_type || 'Card';
+        var isDefault = (card.card_status || '').indexOf('Default') !== -1;
+        var checked = (selectedPaymentMethod === 'card' && (cachedPatientCards.selectedCardIdx === idx || (cachedPatientCards.selectedCardIdx == null && isDefault) || (cachedPatientCards.selectedCardIdx == null && idx === 0)));
+        html += '<label class="card-option' + (isDefault ? ' card-default' : '') + '">';
+        html += '<input type="radio" name="appt-card" value="' + idx + '" ' + (checked ? 'checked' : '') + '>';
+        html += '<span class="chip chip-paid">' + u.escapeHtml(type) + ' ending ' + u.escapeHtml(last4) + '</span>';
+        if (isDefault) html += ' <span class="text-muted">(default)</span>';
+        html += '</label>';
+      });
+      html += '</div>';
+      html += '<label class="payment-option"><input type="radio" name="appt-payment-method" value="invoice" ' + (selectedPaymentMethod === 'invoice' ? 'checked' : '') + '> Send unpaid invoice</label>';
+      html += '</div>';
+      paymentInfo.innerHTML = html;
     } else if (cachedPatientCards) {
+      selectedPaymentMethod = 'invoice';
       paymentInfo.innerHTML = '<span class="text-muted">No card on file — an unpaid invoice for $' + fee.toFixed(2) + ' will be created</span>';
     }
   }
