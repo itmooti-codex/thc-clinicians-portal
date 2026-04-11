@@ -649,6 +649,24 @@
       });
     }
 
+    // Video consultation buttons
+    var btnStartVideo = u.byId('btn-start-video');
+    var btnEndVideo = u.byId('btn-end-video');
+    var btnToggleVideo = u.byId('btn-toggle-video-size');
+    if (btnStartVideo) btnStartVideo.addEventListener('click', function () {
+      if (currentAppointmentId && window.VideoConsultation) {
+        var session = window.ClinicianAuth ? window.ClinicianAuth.getSession() : null;
+        var doctorName = session ? ('Dr. ' + (session.firstName || '') + ' ' + (session.lastName || '')).trim() : 'Doctor';
+        window.VideoConsultation.startCall(currentAppointmentId, doctorName);
+      }
+    });
+    if (btnEndVideo) btnEndVideo.addEventListener('click', function () {
+      if (window.VideoConsultation) window.VideoConsultation.endCall();
+    });
+    if (btnToggleVideo) btnToggleVideo.addEventListener('click', function () {
+      if (window.VideoConsultation) window.VideoConsultation.toggleSize();
+    });
+
     // Editable intake: auto-save on change
     var intakeSaveTimeout = null;
     document.addEventListener('change', function (e) {
@@ -1222,10 +1240,11 @@
   function showView(view) {
     u.$$('.view').forEach(function (v) { v.classList.add('hidden'); });
 
-    // Clean up workspace context banner when leaving workspace
+    // Clean up workspace context banner and video when leaving workspace
     if (view !== 'appointment-workspace') {
       var banner = u.byId('workspace-context-banner');
       if (banner) banner.remove();
+      if (window.VideoConsultation) window.VideoConsultation.cleanup();
     }
 
     // Show the target view
@@ -2935,6 +2954,9 @@
 
       // Render header with full patient details
       renderWorkspaceHeader(appointment, patient);
+
+      // Initialize video consultation panel
+      if (window.VideoConsultation) window.VideoConsultation.initForAppointment(appointmentId);
 
       // Load note into editor (contenteditable div — preserves HTML)
       if (existingNote && existingNote.id) {
