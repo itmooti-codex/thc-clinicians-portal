@@ -710,7 +710,7 @@
       customer_note: opts.description || 'Consultation fee',
       external_order_id: opts.appointment_id ? 'APPT-' + opts.appointment_id : 'CLIN-' + Date.now(),
     };
-    return ontraportRequest('POST', '/transaction/processManual', payload);
+    return ontraportRequest('POST', '/transaction/requestPayment', payload);
   }
 
   // ── Expose ─────────────────────────────────────────────────
