@@ -4902,7 +4902,7 @@
       }
     } else {
       var dateVal = u.byId('appt-date').value;
-      apptTime = dateVal ? Math.floor(new Date(dateVal).getTime() / 1000) : 0;
+      apptTime = dateVal ? Math.floor(new Date(dateVal).getTime() / 1000) : Math.floor(Date.now() / 1000);
     }
 
     var apptType = u.byId('appt-type').value;
