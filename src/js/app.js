@@ -657,7 +657,7 @@
       if (currentAppointmentId && window.VideoConsultation) {
         var session = window.ClinicianAuth ? window.ClinicianAuth.getSession() : null;
         var doctorName = session ? ('Dr. ' + (session.firstName || '') + ' ' + (session.lastName || '')).trim() : 'Doctor';
-        window.VideoConsultation.startCall(currentAppointmentId, doctorName);
+        window.VideoConsultation.startCall(currentAppointmentId, doctorName, currentPatientId);
       }
     });
     if (btnEndVideo) btnEndVideo.addEventListener('click', function () {

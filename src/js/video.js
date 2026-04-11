@@ -20,11 +20,11 @@
 
   // ── API calls ──
 
-  function startVideoRoom(appointmentId, doctorName) {
+  function startVideoRoom(appointmentId, doctorName, patientId) {
     return fetch(API_BASE + '/api/video/room', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ appointmentId: String(appointmentId), doctorName: doctorName }),
+      body: JSON.stringify({ appointmentId: String(appointmentId), doctorName: doctorName, patientId: patientId ? String(patientId) : undefined }),
     }).then(function (res) {
       if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || 'Failed to start video'); });
       return res.json();
@@ -301,11 +301,11 @@
     });
   }
 
-  function startCall(appointmentId, doctorName) {
+  function startCall(appointmentId, doctorName, patientId) {
     if (!appointmentId) return;
     updateStatusBadge('Creating room...', 'connecting');
 
-    startVideoRoom(appointmentId, doctorName).then(function (data) {
+    startVideoRoom(appointmentId, doctorName, patientId).then(function (data) {
       activeCall = {
         appointmentId: appointmentId,
         roomUrl: data.roomUrl,
