@@ -2181,6 +2181,63 @@ a.record-card-link:hover {
   .video-container { height: 300px; }
   .transcript-panel { height: 200px; }
 }
+/* ── AI-generated note blocks ─────────────────── */
+.ai-transcript-summary {
+  background: var(--brand-primary-light);
+  border-left: 3px solid var(--brand-primary);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ai-transcript-summary strong {
+  color: var(--brand-primary-dark);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ai-transcript-summary p { margin: 4px 0; }
+.ai-final-note {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ai-final-note strong {
+  color: var(--brand-primary-dark);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ai-final-note p { margin: 4px 0; }
+.ai-loading {
+  padding: 12px;
+  color: var(--brand-primary-dark);
+  font-size: 13px;
+  font-style: italic;
+  animation: pulse-live 2s ease-in-out infinite;
+}
+/* ── Complete Appointment ─────────────────────── */
+.complete-confirmation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-top: 8px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: #065f46;
+}
+.btn-success {
+  background: #059669;
+  color: #fff;
+  border: none;
+}
+.btn-success:hover {
+  background: #047857;
+}
 .btn-danger {
   background: #ef4444;
   color: #fff;

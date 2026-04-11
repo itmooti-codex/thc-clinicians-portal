@@ -256,6 +256,7 @@
               <div class="workspace-section-title">Clinical Note</div>
               <div style="display:flex;gap:8px;align-items:center;">
                 <button class="btn btn-sm btn-primary" id="btn-generate-clinical-note">Draft Note</button>
+                <button class="btn btn-sm btn-success" id="btn-complete-appointment">Complete Appointment</button>
                 <span class="note-status-badge" id="workspace-note-status"></span>
               </div>
             </div>
@@ -263,6 +264,13 @@
               <div id="workspace-note-content" class="workspace-editor" contenteditable="true" data-placeholder="Document your clinical observations, assessment, and plan..."></div>
               <div class="workspace-note-footer">
                 <span class="note-last-saved" id="workspace-note-saved"></span>
+              </div>
+              <div id="complete-confirmation-bar" class="complete-confirmation-bar hidden">
+                <span>Review the final note above, then confirm completion.</span>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-sm btn-success" id="btn-confirm-complete">Confirm &amp; Complete</button>
+                  <button class="btn btn-sm btn-ghost" id="btn-cancel-complete">Cancel</button>
+                </div>
               </div>
             </div>
           </div>

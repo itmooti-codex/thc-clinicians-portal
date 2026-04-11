@@ -20,6 +20,7 @@
   var scoreCache = {}; // itemId → { clinicalScore, finalScore, reasoning, contraindications, tags }
   var scoreCacheReady = false;
   var previousView = null; // Where to go back to from workspace
+  var lastTranscriptText = null; // Captured transcript from most recent video call
   var pendingPrescribeItem = null; // { item, recommendation } — stashed when prescribing without appointment context
   var wpTabsLoaded = { appointments: false, notes: false, scripts: false }; // Lazy load flags for workspace patient tabs
   var cachedTimeslots = [];
@@ -661,10 +662,28 @@
       }
     });
     if (btnEndVideo) btnEndVideo.addEventListener('click', function () {
-      if (window.VideoConsultation) window.VideoConsultation.endCall();
+      if (window.VideoConsultation) {
+        // Capture transcript BEFORE endCall clears it
+        lastTranscriptText = window.VideoConsultation.getTranscriptText() || '';
+        window.VideoConsultation.endCall();
+        if (lastTranscriptText.trim()) {
+          generateTranscriptSummary(lastTranscriptText);
+        }
+      }
     });
     if (btnToggleVideo) btnToggleVideo.addEventListener('click', function () {
       if (window.VideoConsultation) window.VideoConsultation.toggleSize();
+    });
+
+    // Complete Appointment buttons
+    var btnComplete = u.byId('btn-complete-appointment');
+    var btnConfirmComplete = u.byId('btn-confirm-complete');
+    var btnCancelComplete = u.byId('btn-cancel-complete');
+    if (btnComplete) btnComplete.addEventListener('click', function () { handleCompleteAppointment(); });
+    if (btnConfirmComplete) btnConfirmComplete.addEventListener('click', function () { confirmCompleteAppointment(); });
+    if (btnCancelComplete) btnCancelComplete.addEventListener('click', function () {
+      var bar = u.byId('complete-confirmation-bar');
+      if (bar) bar.classList.add('hidden');
     });
 
     // Editable intake: auto-save on change
@@ -3664,6 +3683,288 @@
     }).finally(function () {
       btn.disabled = false;
       btn.textContent = 'Draft Note';
+    });
+  }
+
+  // ── Transcript Summary (AI-extracted from video call) ──────────
+
+  function generateTranscriptSummary(transcriptText) {
+    if (!transcriptText || !transcriptText.trim()) return;
+
+    var noteEditor = u.byId('workspace-note-content');
+    if (!noteEditor) return;
+
+    // Show loading indicator in the note editor
+    var loadingEl = document.createElement('div');
+    loadingEl.className = 'ai-loading';
+    loadingEl.id = 'transcript-loading';
+    loadingEl.textContent = 'Analysing consultation transcript...';
+    noteEditor.appendChild(loadingEl);
+
+    var prompt =
+      'You are a clinical documentation assistant for an Australian medicinal cannabis clinic.\n\n' +
+      'A telehealth video consultation has just concluded. Below is the live transcript.\n\n' +
+      'Extract ONLY the clinically relevant information. Specifically identify:\n' +
+      '- Chief complaint and symptoms discussed\n' +
+      '- Clinical observations noted by the clinician\n' +
+      '- Treatment decisions or changes discussed\n' +
+      '- Patient-reported outcomes or responses to current treatment\n' +
+      '- Any safety concerns, adverse effects, or contraindications mentioned\n' +
+      '- Agreed next steps or follow-up plan\n\n' +
+      'Do NOT include:\n' +
+      '- Social pleasantries or small talk\n' +
+      '- Repeated statements (summarise once)\n' +
+      '- Administrative discussion (scheduling, payment)\n' +
+      '- Any information not explicitly stated in the transcript\n\n' +
+      'Write as concise clinical shorthand suitable for an Australian medical record. ' +
+      'Use plain text, no markdown. Target 60\u2013100 words. Use conservative, clinically neutral language.\n\n' +
+      'Transcript:\n' + transcriptText;
+
+    data.callGemini(prompt).then(function (summaryText) {
+      // Remove loading indicator
+      var loading = u.byId('transcript-loading');
+      if (loading) loading.remove();
+
+      // Insert AI summary as an editable block
+      var summaryHtml = '<div class="ai-transcript-summary">' +
+        '<strong>Consultation Summary</strong><br>';
+      summaryText.split('\n').forEach(function (line) {
+        var trimmed = line.trim();
+        if (trimmed) summaryHtml += '<p>' + u.escapeHtml(trimmed) + '</p>';
+      });
+      summaryHtml += '</div>';
+
+      noteEditor.innerHTML = summaryHtml + (noteEditor.innerHTML || '');
+      saveWorkspaceNote();
+      u.showToast('Consultation summary added to note', 'success');
+    }).catch(function (err) {
+      console.error('Failed to generate transcript summary:', err);
+      var loading = u.byId('transcript-loading');
+      if (loading) loading.remove();
+      u.showToast('Could not analyse transcript: ' + (err.message || 'Unknown error'), 'error');
+    });
+  }
+
+  // ── Complete Appointment ──────────────────────────────────────
+
+  function handleCompleteAppointment() {
+    var btn = u.byId('btn-complete-appointment');
+    if (!btn) return;
+
+    if (!currentAppointmentId) {
+      u.showToast('No appointment context', 'error');
+      return;
+    }
+
+    var intake = currentPatientIntake || {};
+    var SD = window.ScienceData;
+    var recs = currentRecommendations || [];
+
+    // ── Gather all note content (doctor's notes + transcript summary) ──
+    var noteEditor = u.byId('workspace-note-content');
+    var existingNoteText = '';
+    if (noteEditor) {
+      var temp = document.createElement('div');
+      temp.innerHTML = noteEditor.innerHTML;
+      existingNoteText = (temp.textContent || temp.innerText || '').trim();
+    }
+
+    // ── Patient summary (same as handleGenerateClinicalNote) ──
+    var conditions = intake.conditions || intake.primaryConditions || [];
+    var expLevel = parseInt(intake.experienceLevel || intake.experience_level) || 3;
+    var expLabel = EXP_LABELS[expLevel] || 'Moderate';
+    var medications = intake.medications || 'None reported';
+    var patient = allPatients.find(function (p) { return p.id == currentPatientId; }) || {};
+    var patientName = ((patient.first_name || '') + ' ' + (patient.last_name || '')).trim() || 'Patient';
+    var patientAge = patient.age || '';
+    var patientSex = patient.sex || '';
+    var severity = intake.severity || '';
+    var duration = intake.conditionDuration || intake.duration || '';
+    var allergies = intake.allergies || '';
+    var previousResponse = intake.previousResponse || '';
+    var drivesRegularly = intake.drivesRegularly || '';
+    var psychiatricHistory = (intake.psychiatricHistory || []).join(', ');
+    var substanceUse = intake.substanceUse || intake.cannabisUse || '';
+
+    var patientSummary = patientName +
+      (patientAge ? ', Age ' + patientAge : '') +
+      (patientSex ? ', ' + patientSex : '') +
+      '\nConditions: ' + (conditions.length > 0 ? conditions.join(', ') : 'Not specified') +
+      (severity ? '\nCurrent Severity: ' + severity + '/10' : '') +
+      (duration ? '\nDuration: ' + duration : '') +
+      '\nExperience Level: Level ' + expLevel + ' \u2014 ' + expLabel +
+      (previousResponse ? '\nPrevious Cannabis Response: ' + previousResponse : '') +
+      '\nMedications: ' + medications +
+      (allergies ? '\nAllergies: ' + allergies : '') +
+      (psychiatricHistory ? '\nPsychiatric History: ' + psychiatricHistory : '') +
+      (drivesRegularly && drivesRegularly !== 'No' ? '\nDrives Regularly: ' + drivesRegularly : '') +
+      (substanceUse ? '\nSubstance Use: ' + substanceUse : '');
+
+    // ── Scripts from this visit ──
+    var scriptCards = u.$$('#workspace-scripts .record-card');
+    var productsContext = [];
+    var allCondRefs = {};
+    var relevantCompounds = {};
+
+    scriptCards.forEach(function (card) {
+      var titleEl = card.querySelector('.record-card-title');
+      if (!titleEl) return;
+      var fullText = titleEl.textContent.trim();
+      var matchedItem = null;
+      for (var i = 0; i < enrichedItemsCache.length; i++) {
+        if (fullText.indexOf(enrichedItemsCache[i].item_name) !== -1) {
+          matchedItem = enrichedItemsCache[i];
+          break;
+        }
+      }
+      if (!matchedItem) return;
+
+      var topTerps = recommend ? recommend.getTopTerpenes(matchedItem, 3) : [];
+      var totalTerp = recommend ? recommend.getTotalTerpenePercent(matchedItem) : 0;
+      var terpStr = topTerps.map(function (t) { return t.name + ' (' + t.value.toFixed(1) + '%)'; }).join(', ');
+
+      if (parseFloat(matchedItem.cbd) > 0) relevantCompounds['CBD'] = true;
+      if (parseFloat(matchedItem.thc) > 0) relevantCompounds['THC / dronabinol / nabilone'] = true;
+      if (parseFloat(matchedItem.thc) > 0 && parseFloat(matchedItem.cbd) > 0) relevantCompounds['THC:CBD combinations / nabiximols'] = true;
+      topTerps.forEach(function (t) {
+        var terpKey = t.name.replace('Beta-caryophyllene', 'beta-Caryophyllene')
+                         .replace('Alpha-pinene', 'Pinene').replace('Beta-pinene', 'Pinene');
+        if (SD && SD.COMPOUND_EVIDENCE_NOTES && SD.COMPOUND_EVIDENCE_NOTES[terpKey]) relevantCompounds[terpKey] = true;
+      });
+
+      var rec = null;
+      for (var r = 0; r < recs.length; r++) {
+        if (String(recs[r].id) === String(matchedItem.id)) { rec = recs[r]; break; }
+      }
+      if (rec && rec.matchedConditions) {
+        rec.matchedConditions.forEach(function (mc) {
+          if (SD && SD.CONDITION_REFERENCES && SD.CONDITION_REFERENCES[mc.condition]) {
+            allCondRefs[mc.condition] = SD.CONDITION_REFERENCES[mc.condition];
+          }
+        });
+      }
+
+      productsContext.push(
+        matchedItem.item_name + ' (' + (matchedItem.brand || '') + ') \u2014 ' + (matchedItem.type || '') +
+        '\n  THC: ' + (matchedItem.thc || '0') + ', CBD: ' + (matchedItem.cbd || '0') +
+        ', Total terpenes: ' + totalTerp.toFixed(1) + '%' +
+        (terpStr ? '\n  Top terpenes: ' + terpStr : '')
+      );
+    });
+
+    // ── Evidence library ──
+    var evidenceLines = [];
+    for (var condName in allCondRefs) {
+      evidenceLines.push('Condition \u2014 ' + condName + ': ' + allCondRefs[condName]);
+    }
+    if (SD && SD.COMPOUND_EVIDENCE_NOTES) {
+      for (var compound in relevantCompounds) {
+        if (SD.COMPOUND_EVIDENCE_NOTES[compound]) {
+          evidenceLines.push('Compound \u2014 ' + compound + ': ' + SD.COMPOUND_EVIDENCE_NOTES[compound]);
+        }
+      }
+    }
+
+    // ── Prior scripts ──
+    var priorScriptsContext = '';
+    var existingScriptRows = u.$$('#workspace-existing-scripts .existing-script-row');
+    if (existingScriptRows.length > 0) {
+      var priorLines = [];
+      existingScriptRows.forEach(function (row) {
+        var nameEl = row.querySelector('.existing-script-name');
+        var metaEl = row.querySelector('.existing-script-meta');
+        if (nameEl) {
+          var line = nameEl.textContent.trim();
+          if (metaEl) line += ' (' + metaEl.textContent.trim().replace(/\s+/g, ' ') + ')';
+          priorLines.push(line);
+        }
+      });
+      if (priorLines.length > 0) {
+        priorScriptsContext = 'This patient has ' + priorLines.length + ' prior script(s):\n' + priorLines.join('\n');
+      }
+    }
+
+    // ── Build final compilation prompt ──
+    var prompt =
+      '## Final clinical note \u2014 governed by evidence library\n\n' +
+      'You are a clinical documentation assistant for an Australian medicinal cannabis clinic.\n\n' +
+      'The doctor has completed a telehealth consultation. Compile the FINAL clinical note for this appointment by combining the consultation observations, prescribed products, patient intake data, and evidence library.\n\n' +
+      'Write a brief prescribing-rationale note for the medical record. This note supplements the full consultation note, intake form, clinician assessment, consent documentation, and dosing instructions recorded elsewhere.\n\n' +
+      '### Output requirements\n\n' +
+      'Return plain text only, with these 5 labelled sections in this exact order:\n\n' +
+      '1. Patient Presentation\n2. Clinical Reasoning\n3. Prescribed Products\n4. Evidence Base\n5. Monitoring Plan\n\n' +
+      '### Style rules\n\n' +
+      '- Write as one cohesive clinical note, not separate per-product paragraphs.\n' +
+      '- Keep it concise, professional, and suitable for Australian medical records.\n' +
+      '- Target approximately 120\u2013180 words total.\n' +
+      '- Use plain text only. No markdown, bullet points, numbering, or headings beyond the required section labels.\n' +
+      '- Use conservative, clinically neutral language.\n' +
+      '- Incorporate relevant observations from the consultation into the appropriate sections.\n' +
+      '- The consultation observations should inform Patient Presentation, Clinical Reasoning, and Monitoring Plan where applicable.\n' +
+      '- Do not use marketing language or overstate efficacy.\n' +
+      '- Prefer cannabinoid-based rationale over terpene-based claims unless evidence library supports terpene relevance.\n\n' +
+      '### Content rules for each section\n\n' +
+      '1. Patient Presentation: 1\u20132 sentences. State indication, relevant treatment context, and key observations from the consultation.\n' +
+      '2. Clinical Reasoning: 1\u20132 sentences. Explain product selection rationale, incorporating what was discussed during the consultation.\n' +
+      '3. Prescribed Products: One compact sentence listing each product with its clinical role.\n' +
+      '4. Evidence Base: 1\u20132 sentences using only supplied evidence library references.\n' +
+      '5. Monitoring Plan: 1\u20132 sentences. State follow-up plan, including any goals or concerns discussed during the consultation.\n\n' +
+      '### Evidence and safety rules\n\n' +
+      '- The evidence library is the only permitted source for clinical evidence statements.\n' +
+      '- If THC is present, include monitoring for psychoactive effects and driving safety.\n' +
+      '- If safety issues are documented in intake or consultation, incorporate them.\n' +
+      '- Do not invent history, treatments, or evidence not supplied.\n\n' +
+      '### Input data\n\n' +
+      'Patient:\n' + patientSummary + '\n\n' +
+      (priorScriptsContext ? 'Previous prescription history:\n' + priorScriptsContext + '\n\n' : '') +
+      'Consultation observations (from transcript and clinician notes):\n' + (existingNoteText || 'No observations recorded.') + '\n\n' +
+      'Scripts prescribed this visit:\n' + (productsContext.length > 0 ? productsContext.join('\n\n') : 'No scripts prescribed.') + '\n\n' +
+      'Evidence library:\n' + (evidenceLines.length > 0 ? evidenceLines.join('\n') : 'No matching evidence library entries.') + '\n\n' +
+      '### Final instruction\n\n' +
+      'Generate the final clinical note now using only the supplied information and following all rules above.';
+
+    // Show loading state
+    btn.disabled = true;
+    btn.textContent = 'Compiling...';
+
+    data.callGemini(prompt).then(function (generatedText) {
+      if (noteEditor) {
+        // Replace the entire note with the final compiled version
+        var htmlText = '<div class="ai-final-note"><strong>Final Clinical Note</strong><br>';
+        generatedText.split('\n').forEach(function (line) {
+          var trimmed = line.trim();
+          if (trimmed) htmlText += '<p>' + u.escapeHtml(trimmed) + '</p>';
+        });
+        htmlText += '</div>';
+        noteEditor.innerHTML = htmlText;
+      }
+      // Show confirmation bar
+      var confirmBar = u.byId('complete-confirmation-bar');
+      if (confirmBar) confirmBar.classList.remove('hidden');
+      u.showToast('Final note compiled \u2014 review and confirm below', 'info');
+    }).catch(function (err) {
+      console.error('Failed to compile final note:', err);
+      u.showToast('Failed to compile note: ' + (err.message || 'Unknown error'), 'error');
+    }).finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'Complete Appointment';
+    });
+  }
+
+  function confirmCompleteAppointment() {
+    saveWorkspaceNote();
+
+    data.updateAppointment(currentAppointmentId, { status: 'Completed' }).then(function () {
+      u.showToast('Appointment completed', 'success');
+      var confirmBar = u.byId('complete-confirmation-bar');
+      if (confirmBar) confirmBar.classList.add('hidden');
+      // Update the appointment status chip in the context banner
+      var bannerRight = document.querySelector('.context-banner-right');
+      if (bannerRight) bannerRight.innerHTML = '<span class="chip chip-completed">Completed</span>';
+      lastTranscriptText = null;
+    }).catch(function (err) {
+      console.error('Failed to complete appointment:', err);
+      u.showToast('Note saved but failed to update appointment status: ' + (err.message || 'Unknown error'), 'error');
     });
   }
 
