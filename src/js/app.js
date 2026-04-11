@@ -1103,6 +1103,11 @@
         data.saveDoctorPreferences(doctorId, prefs).then(function () {
           window.DoctorPreferences.setAll(prefs);
           setCalendarViewHours(prefs.calendar_view_start, prefs.calendar_view_end);
+          // Re-fetch from Ontraport to confirm the save persisted
+          return data.fetchDoctorPreferences(Number(doctorId));
+        }).then(function (serverPrefs) {
+          if (serverPrefs) window.DoctorPreferences.setAll(serverPrefs);
+          populateSettingsForm();
           btnSaveSettings.textContent = 'Save Settings';
           btnSaveSettings.disabled = false;
           u.showToast('Settings saved', 'success');
