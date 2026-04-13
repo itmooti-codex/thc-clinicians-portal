@@ -9,6 +9,9 @@
   var activeCall = null;      // { appointmentId, roomUrl, roomName, token }
   var videoExpanded = false;
   var transcriptEntries = []; // Live transcript accumulator
+  var callStartTime = null;   // Date when joined-meeting fired
+  var activePatientName = ''; // Patient name for the indicator
+  var activePatientId = null; // Patient contact ID
 
   function getAuthHeaders() {
     var token = window.ClinicianAuth ? window.ClinicianAuth.getToken() : null;
@@ -94,7 +97,6 @@
       '<span class="transcript-text">' + escapeHtml(text) + '</span>';
     content.appendChild(entry);
 
-    // Auto-scroll to bottom
     content.scrollTop = content.scrollHeight;
   }
 
@@ -150,9 +152,9 @@
     // ── Event handlers ──
 
     frame.on('joined-meeting', function () {
+      callStartTime = new Date();
       updateStatusBadge('Live', 'live');
       if (window.AppUtils) window.AppUtils.showToast('Video consultation started — waiting for patient to join', 'success');
-      // Auto-start transcription with Australian English + speaker diarization
       try {
         frame.startTranscription({
           extra: {
@@ -170,6 +172,8 @@
 
     frame.on('left-meeting', function () {
       updateStatusBadge('Disconnected', 'ended');
+      // Notify app.js that the call ended (e.g. network drop, patient ended)
+      if (window._onVideoCallEnded) window._onVideoCallEnded();
     });
 
     frame.on('participant-joined', function (event) {
@@ -196,15 +200,11 @@
 
     frame.on('transcription-message', function (event) {
       if (!event.text) return;
-      console.log('Transcription event keys:', Object.keys(event));
-      console.log('Transcription event:', JSON.stringify(event, null, 2));
-      // Try all possible speaker identification fields
       var speaker = event.user_name || event.userName || 'Unknown';
       if (speaker === 'Unknown') {
         var sid = event.session_id || event.sessionId || event.participantId;
         if (sid && frame) {
           var participants = frame.participants();
-          // Check local participant first
           if (participants.local && participants.local.session_id === sid) {
             speaker = participants.local.user_name || 'You';
           } else {
@@ -233,7 +233,6 @@
     var callArea = document.getElementById('video-call-area');
     if (callArea) callArea.classList.remove('hidden');
 
-    // Show end button, hide start button
     var startBtn = document.getElementById('btn-start-video');
     var endBtn = document.getElementById('btn-end-video');
     if (startBtn) startBtn.classList.add('hidden');
@@ -264,17 +263,18 @@
     }
 
     var callArea = document.getElementById('video-call-area');
-    if (callArea) callArea.classList.add('hidden');
+    if (callArea) {
+      callArea.classList.add('hidden');
+      callArea.classList.remove('video-ended-transcript-only');
+    }
 
-    // Show start button, hide end button
     var startBtn = document.getElementById('btn-start-video');
     var endBtn = document.getElementById('btn-end-video');
     if (startBtn) startBtn.classList.remove('hidden');
     if (endBtn) endBtn.classList.add('hidden');
 
     videoExpanded = false;
-    var container = document.getElementById('video-call-area');
-    if (container) container.classList.remove('video-expanded');
+    if (callArea) callArea.classList.remove('video-expanded');
   }
 
   function toggleVideoSize() {
@@ -288,12 +288,14 @@
 
   function initForAppointment(appointmentId) {
     activeCall = null;
+    callStartTime = null;
+    activePatientName = '';
+    activePatientId = null;
     leaveCall();
     clearTranscript();
     showVideoSection();
     updateStatusBadge('Ready', 'ready');
 
-    // Check if a room already exists (e.g. returning to workspace)
     checkVideoStatus(appointmentId).then(function (status) {
       if (status.roomReady && status.participants > 0) {
         updateStatusBadge(status.participants + ' in call', 'live');
@@ -301,8 +303,10 @@
     });
   }
 
-  function startCall(appointmentId, doctorName, patientId) {
+  function startCall(appointmentId, doctorName, patientId, patientName) {
     if (!appointmentId) return;
+    activePatientName = patientName || '';
+    activePatientId = patientId || null;
     updateStatusBadge('Creating room...', 'connecting');
 
     startVideoRoom(appointmentId, doctorName, patientId).then(function (data) {
@@ -328,19 +332,18 @@
 
     var appointmentId = activeCall.appointmentId;
     leaveCall();
+    activeCall = null;
+    callStartTime = null;
     updateStatusBadge('Ending...', 'connecting');
 
     endVideoRoom(appointmentId).then(function (result) {
-      activeCall = null;
       updateStatusBadge('Ended', 'ended');
 
-      // If we got a transcript back, keep it displayed
       if (result.transcript && result.transcript.length > 0) {
         clearTranscript();
         result.transcript.forEach(function (entry) {
           appendTranscriptEntry(entry.speaker, entry.text);
         });
-        // Show the transcript panel even though the call area is hidden
         var callArea = document.getElementById('video-call-area');
         if (callArea) {
           callArea.classList.remove('hidden');
@@ -352,20 +355,55 @@
       }
     }).catch(function (err) {
       console.error('Failed to end video room:', err);
-      activeCall = null;
       updateStatusBadge('Ended', 'ended');
     });
   }
 
+  /** Full teardown — only called when explicitly ending or no active call. */
   function cleanup() {
     leaveCall();
     hideVideoSection();
     clearTranscript();
     activeCall = null;
+    callStartTime = null;
+    activePatientName = '';
+    activePatientId = null;
+  }
+
+  /** Hide workspace video UI but keep the call alive. Call continues in the hidden DOM. */
+  function detach() {
+    hideVideoSection();
+    // Don't destroy callFrame, don't clear activeCall — the Daily iframe stays in the DOM
+  }
+
+  /** Re-show workspace video UI after returning from another view. */
+  function reattach() {
+    showVideoSection();
+    if (activeCall && callFrame) {
+      var callArea = document.getElementById('video-call-area');
+      if (callArea) callArea.classList.remove('hidden');
+
+      var startBtn = document.getElementById('btn-start-video');
+      var endBtn = document.getElementById('btn-end-video');
+      if (startBtn) startBtn.classList.add('hidden');
+      if (endBtn) endBtn.classList.remove('hidden');
+
+      updateStatusBadge('Live', 'live');
+    }
+  }
+
+  /** Get info about the active call (for the floating indicator). */
+  function getActiveCallInfo() {
+    if (!activeCall) return null;
+    return {
+      appointmentId: activeCall.appointmentId,
+      patientName: activePatientName,
+      patientId: activePatientId,
+      startTime: callStartTime,
+    };
   }
 
   function getTranscriptText() {
-    // Return the accumulated transcript as plain text (for pasting into clinical notes)
     return transcriptEntries.map(function (e) {
       return e.speaker + ': ' + e.text;
     }).join('\n');
@@ -378,6 +416,9 @@
     startCall: startCall,
     endCall: endCall,
     cleanup: cleanup,
+    detach: detach,
+    reattach: reattach,
+    getActiveCallInfo: getActiveCallInfo,
     toggleSize: toggleVideoSize,
     isActive: function () { return !!activeCall; },
     getTranscriptText: getTranscriptText,

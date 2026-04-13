@@ -95,11 +95,24 @@
       if (loginEl) loginEl.classList.add('hidden');
       if (content) content.classList.remove('hidden');
       bindEvents();
-      // Add logout button to header
       addLogoutButton();
+      createActiveCallIndicator();
       // Data is loaded via direct GraphQL API (no SDK). Short delay then load.
       var delay = window.__TEST_MOCK__ ? 0 : 500;
       setTimeout(function () { loadInitialData(); }, delay);
+
+      // Warn before closing browser tab during active call
+      window.addEventListener('beforeunload', function (e) {
+        if (window.VideoConsultation && window.VideoConsultation.isActive()) {
+          e.preventDefault();
+          e.returnValue = 'You have an active video consultation. Are you sure you want to leave?';
+        }
+      });
+
+      // Handle call ending unexpectedly (network drop, patient hangs up)
+      window._onVideoCallEnded = function () {
+        hideActiveCallIndicator();
+      };
     }
 
     function addLogoutButton() {
@@ -656,16 +669,26 @@
     var btnToggleVideo = u.byId('btn-toggle-video-size');
     if (btnStartVideo) btnStartVideo.addEventListener('click', function () {
       if (currentAppointmentId && window.VideoConsultation) {
+        // Check if there's already an active call for a different appointment
+        if (window.VideoConsultation.isActive()) {
+          var info = window.VideoConsultation.getActiveCallInfo();
+          if (info && String(info.appointmentId) !== String(currentAppointmentId)) {
+            if (!confirm('You have a live call with ' + (info.patientName || 'a patient') + '. End it to start a new one?')) return;
+            window.VideoConsultation.endCall();
+          }
+        }
         var session = window.ClinicianAuth ? window.ClinicianAuth.getSession() : null;
         var doctorName = session ? ('Dr. ' + (session.firstName || '') + ' ' + (session.lastName || '')).trim() : 'Doctor';
-        window.VideoConsultation.startCall(currentAppointmentId, doctorName, currentPatientId);
+        var patient = allPatients.find(function (p) { return p.id == currentPatientId; }) || {};
+        var patientName = ((patient.first_name || '') + ' ' + (patient.last_name || '')).trim() || 'Patient';
+        window.VideoConsultation.startCall(currentAppointmentId, doctorName, currentPatientId, patientName);
       }
     });
     if (btnEndVideo) btnEndVideo.addEventListener('click', function () {
       if (window.VideoConsultation) {
-        // Capture transcript BEFORE endCall clears it
         lastTranscriptText = window.VideoConsultation.getTranscriptText() || '';
         window.VideoConsultation.endCall();
+        hideActiveCallIndicator();
         if (lastTranscriptText.trim()) {
           generateTranscriptSummary(lastTranscriptText);
         }
@@ -1261,14 +1284,126 @@
     el = u.byId('pref-calendar-end');      if (el) el.value = prefs.calendar_view_end;
   }
 
+  // ── Active Call Indicator ──────────────────────────────────
+  var _callTimerInterval = null;
+
+  function createActiveCallIndicator() {
+    var indicator = document.createElement('div');
+    indicator.id = 'active-call-indicator';
+    indicator.className = 'active-call-indicator hidden';
+    indicator.innerHTML =
+      '<div class="call-indicator-left">' +
+        '<span class="call-indicator-dot"></span>' +
+        '<span class="call-indicator-label">Live Consultation</span>' +
+        '<span class="call-indicator-sep">&middot;</span>' +
+        '<span class="call-indicator-patient" id="call-indicator-patient"></span>' +
+        '<span class="call-indicator-sep">&middot;</span>' +
+        '<span class="call-indicator-timer" id="call-indicator-timer">00:00</span>' +
+      '</div>' +
+      '<button class="call-indicator-btn" id="btn-return-to-call">' +
+        'Return to Call' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="9 18 15 12 9 6"/></svg>' +
+      '</button>';
+
+    // Insert between header and tab bar
+    var tabBar = document.querySelector('.tab-bar');
+    if (tabBar && tabBar.parentNode) {
+      tabBar.parentNode.insertBefore(indicator, tabBar);
+    }
+
+    // Return-to-call click handler
+    indicator.querySelector('#btn-return-to-call').addEventListener('click', function () {
+      var info = window.VideoConsultation ? window.VideoConsultation.getActiveCallInfo() : null;
+      if (info) {
+        returnToActiveCall(info.appointmentId, info.patientId);
+      }
+    });
+  }
+
+  function showActiveCallIndicator() {
+    var indicator = u.byId('active-call-indicator');
+    if (!indicator) return;
+    var info = window.VideoConsultation ? window.VideoConsultation.getActiveCallInfo() : null;
+    if (!info) return;
+
+    // Set patient name
+    var patientEl = u.byId('call-indicator-patient');
+    if (patientEl) patientEl.textContent = info.patientName || 'Patient';
+
+    // Start timer
+    if (_callTimerInterval) clearInterval(_callTimerInterval);
+    _callTimerInterval = setInterval(function () { updateCallTimer(info.startTime); }, 1000);
+    updateCallTimer(info.startTime);
+
+    indicator.classList.remove('hidden');
+
+    // Add LIVE badge to Appointments tab
+    addTabLiveBadge();
+  }
+
+  function hideActiveCallIndicator() {
+    var indicator = u.byId('active-call-indicator');
+    if (indicator) indicator.classList.add('hidden');
+    if (_callTimerInterval) { clearInterval(_callTimerInterval); _callTimerInterval = null; }
+    removeTabLiveBadge();
+  }
+
+  function updateCallTimer(startTime) {
+    var timerEl = u.byId('call-indicator-timer');
+    if (!timerEl || !startTime) return;
+    var elapsed = Math.floor((Date.now() - startTime.getTime()) / 1000);
+    var mins = Math.floor(elapsed / 60);
+    var secs = elapsed % 60;
+    var hours = Math.floor(mins / 60);
+    mins = mins % 60;
+    timerEl.textContent = hours > 0
+      ? hours + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0')
+      : String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+  }
+
+  function addTabLiveBadge() {
+    removeTabLiveBadge(); // prevent duplicates
+    var apptTab = document.querySelector('.tab-btn[data-tab="appointments"]');
+    if (apptTab && !apptTab.querySelector('.tab-live-badge')) {
+      var badge = document.createElement('span');
+      badge.className = 'tab-live-badge';
+      badge.textContent = 'LIVE';
+      apptTab.appendChild(badge);
+    }
+  }
+
+  function removeTabLiveBadge() {
+    var badges = document.querySelectorAll('.tab-live-badge');
+    badges.forEach(function (b) { b.remove(); });
+  }
+
+  function returnToActiveCall(appointmentId, patientId) {
+    if (!appointmentId) return;
+    hideActiveCallIndicator();
+    currentAppointmentId = Number(appointmentId);
+    currentPatientId = patientId ? Number(patientId) : currentPatientId;
+
+    // Re-show the workspace with the video reattached
+    showView('appointment-workspace');
+    if (window.VideoConsultation) window.VideoConsultation.reattach();
+  }
+
   function showView(view) {
     u.$$('.view').forEach(function (v) { v.classList.add('hidden'); });
 
-    // Clean up workspace context banner and video when leaving workspace
+    // When leaving workspace: detach (keep call alive) or cleanup (no call)
     if (view !== 'appointment-workspace') {
       var banner = u.byId('workspace-context-banner');
       if (banner) banner.remove();
-      if (window.VideoConsultation) window.VideoConsultation.cleanup();
+      if (window.VideoConsultation && window.VideoConsultation.isActive()) {
+        window.VideoConsultation.detach();
+        showActiveCallIndicator();
+      } else if (window.VideoConsultation) {
+        window.VideoConsultation.cleanup();
+      }
+    } else {
+      // Returning to workspace — hide the indicator
+      hideActiveCallIndicator();
     }
 
     // Show the target view
@@ -2980,7 +3115,15 @@
       renderWorkspaceHeader(appointment, patient);
 
       // Initialize video consultation panel
-      if (window.VideoConsultation) window.VideoConsultation.initForAppointment(appointmentId);
+      // If returning to an appointment with an active call, reattach instead of reinitializing
+      if (window.VideoConsultation) {
+        var callInfo = window.VideoConsultation.getActiveCallInfo();
+        if (callInfo && String(callInfo.appointmentId) === String(appointmentId)) {
+          window.VideoConsultation.reattach();
+        } else {
+          window.VideoConsultation.initForAppointment(appointmentId);
+        }
+      }
 
       // Load note into editor (contenteditable div — preserves HTML)
       if (existingNote && existingNote.id) {
