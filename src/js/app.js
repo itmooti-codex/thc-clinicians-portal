@@ -4447,7 +4447,7 @@
     var results = enrichedItemsCache.filter(function (item) {
       // Text search
       if (query) {
-        var searchStr = ((item.item_name || '') + ' ' + (item.brand || '') + ' ' + (item.chemovar || '') + ' ' + (item.dominance || '')).toLowerCase();
+        var searchStr = ((item.item_name || '') + ' ' + (item.brand || '') + ' ' + (item.chemovar || '') + ' ' + (item.dominance || '') + ' ' + (item.conditions_options_as_text || '') + ' ' + (item.benefits_options_as_text || '')).toLowerCase();
         if (searchStr.indexOf(query) === -1) return false;
       }
 
@@ -4561,7 +4561,7 @@
 
     var results = enrichedItemsCache.filter(function (item) {
       if (query) {
-        var searchStr = ((item.item_name || '') + ' ' + (item.brand || '') + ' ' + (item.chemovar || '') + ' ' + (item.dominance || '')).toLowerCase();
+        var searchStr = ((item.item_name || '') + ' ' + (item.brand || '') + ' ' + (item.chemovar || '') + ' ' + (item.dominance || '') + ' ' + (item.conditions_options_as_text || '') + ' ' + (item.benefits_options_as_text || '')).toLowerCase();
         if (searchStr.indexOf(query) === -1) return false;
       }
 
