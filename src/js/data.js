@@ -163,9 +163,9 @@
     var varDecl = ['$limit: IntScalar'];
     if (vars.doctor_id != null) varDecl.push('$doctor_id: IntScalar');
     if (vars.patient_id != null) varDecl.push('$patient_id: IntScalar');
-    // NOTE: VitalStats GraphQL doesn't support orderBy on getAppointments — we sort client-side
-    // in loadDoctorAppointments(). Keep limit high enough to cover all appts (1000 handles most doctors).
-    var q = 'query getAppointments(' + varDecl.join(', ') + ') { getAppointments(' + queryClause + 'limit: $limit) { id doctor_id patient_id appointment_time status type timeslot_id } }';
+    // Order newest first — VitalStats uses { path: [...], type: desc } syntax
+    var orderClause = 'orderBy: [{path: ["appointment_time"], type: desc}], ';
+    var q = 'query getAppointments(' + varDecl.join(', ') + ') { getAppointments(' + queryClause + orderClause + 'limit: $limit) { id doctor_id patient_id appointment_time status type timeslot_id } }';
     return fetchGraphQL(q, vars).then(function (data) {
       var list = data && data.getAppointments;
       if (Array.isArray(list)) return list;
