@@ -2139,7 +2139,7 @@
     empty.classList.add('hidden');
     loading.classList.remove('hidden');
 
-    var filters = { limit: 200 };
+    var filters = { limit: 1000 };
     if (doctorId) filters.doctor_id = doctorId;
 
     data.fetchAppointments(filters).then(function (appts) {
