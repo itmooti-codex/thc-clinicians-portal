@@ -2853,6 +2853,13 @@
     return ids.map(function (id) { return labelMap[id.trim()] || null; }).filter(Boolean);
   }
 
+  // Expose label maps and parser globally so utils.js (search) can decode IDs → names
+  window.AppLabels = {
+    CONDITIONS: CONDITIONS_LABELS,
+    BENEFITS: BENEFITS_LABELS,
+    parseOptionIds: parseOptionIds,
+  };
+
   function openItemDetailPage(itemId) {
     var item = enrichedItemsCache.find(function (i) { return i.id === itemId; }) || itemsMap[itemId];
     if (!item) { u.showToast('Product not found', 'error'); return; }

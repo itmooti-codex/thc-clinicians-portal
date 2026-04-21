@@ -176,15 +176,32 @@
   /**
    * Build a lowercase search string for a product combining name, brand, chemovar,
    * dominance, lineage, conditions, benefits, and any terpenes >0.1%.
+   *
+   * Note: Ontraport stores conditions/benefits as star-delimited option IDs
+   * (e.g. "*/*555*/*559*/*" not "PTSD Glaucoma"). We decode via window.AppLabels.
    */
   function buildProductHaystack(item) {
     if (!item) return '';
     var parts = [
       item.item_name, item.brand, item.chemovar, item.dominance, item.sativa_indica,
       item.sub_type, item.type,
-      item.conditions_options_as_text, item.benefits_options_as_text,
       item.dominant_terpenes_options_as_text,
     ];
+
+    // Decode condition/benefit option IDs to human-readable names
+    var labels = window.AppLabels;
+    if (labels && labels.parseOptionIds) {
+      if (item.conditions_options_as_text) {
+        parts.push(labels.parseOptionIds(item.conditions_options_as_text, labels.CONDITIONS).join(' '));
+      }
+      if (item.benefits_options_as_text) {
+        parts.push(labels.parseOptionIds(item.benefits_options_as_text, labels.BENEFITS).join(' '));
+      }
+    } else {
+      // Fallback: include raw text in case AppLabels isn't loaded yet
+      parts.push(item.conditions_options_as_text, item.benefits_options_as_text);
+    }
+
     // Add terpene names for any terpene present >= 0.1%
     for (var i = 0; i < TERPENE_FIELDS.length; i++) {
       var f = TERPENE_FIELDS[i];
