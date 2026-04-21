@@ -173,13 +173,10 @@
     terpinolene: ['terpinolene'],
   };
 
-  /**
-   * Build a lowercase search string for a product combining name, brand, chemovar,
-   * dominance, lineage, conditions, benefits, and any terpenes >0.1%.
-   *
-   * Note: Ontraport stores conditions/benefits as star-delimited option IDs
-   * (e.g. "*/*555*/*559*/*" not "PTSD Glaucoma"). We decode via window.AppLabels.
-   */
+  // Build a lowercase search string for a product combining name, brand, chemovar,
+  // dominance, lineage, conditions, benefits, and any terpenes >0.1%.
+  // Note: Ontraport stores conditions/benefits as star-delimited option IDs
+  // (numeric IDs wrapped in star-slash delimiters) — we decode via window.AppLabels.
   function buildProductHaystack(item) {
     if (!item) return '';
     var parts = [
