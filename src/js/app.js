@@ -4572,7 +4572,8 @@
 
   function runProductSearch() {
     var searchInput = u.byId('prescribe-product-search');
-    var query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    var query = searchInput ? searchInput.value.trim() : '';
+    var searchTokens = u.parseSearchQuery(query);
 
     // Collect active filters from each group
     var types = getActiveFilterValues('type');
@@ -4588,10 +4589,11 @@
     var totalItems = enrichedItemsCache.length;
 
     var results = enrichedItemsCache.filter(function (item) {
-      // Text search
-      if (query) {
-        var searchStr = ((item.item_name || '') + ' ' + (item.brand || '') + ' ' + (item.chemovar || '') + ' ' + (item.dominance || '') + ' ' + (item.conditions_options_as_text || '') + ' ' + (item.benefits_options_as_text || '')).toLowerCase();
-        if (searchStr.indexOf(query) === -1) return false;
+      // Text search — multi-term tokenized (AND logic) across name, brand, chemovar,
+      // dominance, conditions, benefits, dominant terpenes, and terpenes >0.1%
+      if (searchTokens.length > 0) {
+        var haystack = u.buildProductHaystack(item);
+        if (!u.matchesAllTokens(haystack, searchTokens)) return false;
       }
 
       // Type filter (OR within group)
@@ -4688,7 +4690,8 @@
 
   function runFormularySearch() {
     var searchInput = u.byId('formulary-search');
-    var query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    var query = searchInput ? searchInput.value.trim() : '';
+    var searchTokens = u.parseSearchQuery(query);
 
     var types = getFormularyFilterValues('f-type');
     var dominances = getFormularyFilterValues('f-dominance');
@@ -4703,9 +4706,11 @@
     var totalItems = enrichedItemsCache.length;
 
     var results = enrichedItemsCache.filter(function (item) {
-      if (query) {
-        var searchStr = ((item.item_name || '') + ' ' + (item.brand || '') + ' ' + (item.chemovar || '') + ' ' + (item.dominance || '') + ' ' + (item.conditions_options_as_text || '') + ' ' + (item.benefits_options_as_text || '')).toLowerCase();
-        if (searchStr.indexOf(query) === -1) return false;
+      // Multi-term tokenized search (AND logic) across name, brand, chemovar,
+      // dominance, conditions, benefits, dominant terpenes, and terpenes >0.1%
+      if (searchTokens.length > 0) {
+        var haystack = u.buildProductHaystack(item);
+        if (!u.matchesAllTokens(haystack, searchTokens)) return false;
       }
 
       var itemType = item.type || '';

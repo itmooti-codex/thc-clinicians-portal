@@ -150,6 +150,91 @@
     }, duration);
   }
 
+  // ── Product Search Helpers ───────────────────────────────────
+
+  // Terpene fields — include name in haystack if concentration >= 0.1%
+  var TERPENE_FIELDS = [
+    'myrcene', 'limonene', 'beta_caryophyllene', 'linalool', 'trans_caryophyllene',
+    'ocimene', 'farnesene', 'alpha_pinene', 'beta_pinene', 'humulene', 'terpinolene',
+  ];
+
+  // Pretty names for matching (e.g. "beta-caryophyllene" as well as "beta_caryophyllene")
+  var TERPENE_DISPLAY_NAMES = {
+    myrcene: ['myrcene'],
+    limonene: ['limonene'],
+    beta_caryophyllene: ['beta-caryophyllene', 'caryophyllene'],
+    linalool: ['linalool'],
+    trans_caryophyllene: ['trans-caryophyllene', 'caryophyllene'],
+    ocimene: ['ocimene'],
+    farnesene: ['farnesene'],
+    alpha_pinene: ['alpha-pinene', 'pinene'],
+    beta_pinene: ['beta-pinene', 'pinene'],
+    humulene: ['humulene'],
+    terpinolene: ['terpinolene'],
+  };
+
+  /**
+   * Build a lowercase search string for a product combining name, brand, chemovar,
+   * dominance, lineage, conditions, benefits, and any terpenes >0.1%.
+   */
+  function buildProductHaystack(item) {
+    if (!item) return '';
+    var parts = [
+      item.item_name, item.brand, item.chemovar, item.dominance, item.sativa_indica,
+      item.sub_type, item.type,
+      item.conditions_options_as_text, item.benefits_options_as_text,
+      item.dominant_terpenes_options_as_text,
+    ];
+    // Add terpene names for any terpene present >= 0.1%
+    for (var i = 0; i < TERPENE_FIELDS.length; i++) {
+      var f = TERPENE_FIELDS[i];
+      var val = parseFloat(item[f]);
+      if (!isNaN(val) && val >= 0.1) {
+        var names = TERPENE_DISPLAY_NAMES[f] || [f];
+        parts.push(names.join(' '));
+      }
+    }
+    return parts.filter(Boolean).join(' ').toLowerCase();
+  }
+
+  /**
+   * Parse a search query into lowercase tokens.
+   * Respects quoted phrases: 'anxiety "chronic pain"' → ['anxiety', 'chronic pain']
+   * Commas and whitespace both act as separators.
+   */
+  function parseSearchQuery(query) {
+    if (!query || !query.trim()) return [];
+    var tokens = [];
+    var str = query.trim();
+    // Extract quoted phrases first
+    var quoteRegex = /"([^"]+)"/g;
+    var m;
+    while ((m = quoteRegex.exec(str)) !== null) {
+      var phrase = m[1].trim();
+      if (phrase) tokens.push(phrase.toLowerCase());
+    }
+    // Remove quoted portions, then split the rest on commas/whitespace
+    var remainder = str.replace(/"[^"]+"/g, ' ');
+    var raw = remainder.split(/[\s,]+/);
+    for (var i = 0; i < raw.length; i++) {
+      var t = raw[i].trim().toLowerCase();
+      if (t) tokens.push(t);
+    }
+    return tokens;
+  }
+
+  /**
+   * Returns true if every token appears as a substring in haystack.
+   */
+  function matchesAllTokens(haystack, tokens) {
+    if (!tokens || tokens.length === 0) return true;
+    if (!haystack) return false;
+    for (var i = 0; i < tokens.length; i++) {
+      if (haystack.indexOf(tokens[i]) === -1) return false;
+    }
+    return true;
+  }
+
   // ── Expose on window ─────────────────────────────────────────
 
   window.AppUtils = {
@@ -166,5 +251,8 @@
     setPageLoaderMessage: setPageLoaderMessage,
     withPageLoader: withPageLoader,
     showToast: showToast,
+    buildProductHaystack: buildProductHaystack,
+    parseSearchQuery: parseSearchQuery,
+    matchesAllTokens: matchesAllTokens,
   };
 })();
