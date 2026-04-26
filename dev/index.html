@@ -106,6 +106,10 @@
           <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
           Formulary
         </button>
+        <button class="tab-btn" data-tab="education">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L1 9l11 6 9-4.91V17h2V9z"/><path d="M5 13.18v4L12 21l7-3.82v-4L12 17z"/></svg>
+          Education
+        </button>
         <button class="tab-btn" data-tab="settings">
           <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Settings
@@ -116,7 +120,7 @@
       </nav>
 
       <!-- Timeslot alert banner (shown when doctor has <2 future timeslots) -->
-      <div id="timeslot-alert-banner" class="alert-banner alert-danger hidden">
+      <div id="timeslot-alert-banner" class="alert-banner alert-warning hidden">
         <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <span>You have less than 2 timeslots booked for the future. Please consider <a href="#" id="timeslot-alert-link">adding new timeslots</a>.</span>
         <button class="alert-dismiss" id="btn-dismiss-timeslot-alert" title="Dismiss">&times;</button>
@@ -223,6 +227,7 @@
               <span class="video-bar-status" id="video-status-badge"></span>
             </div>
             <div class="video-bar-right">
+              <button class="btn btn-sm btn-ghost" id="btn-start-audio" title="In-person consult — local camera off, audio records and transcribes">Start Audio (in-person)</button>
               <button class="btn btn-sm btn-primary" id="btn-start-video">Start Video Call</button>
               <button class="btn btn-sm btn-danger hidden" id="btn-end-video">End Call</button>
               <button class="btn btn-sm btn-ghost" id="btn-toggle-video-size" title="Expand/collapse">
@@ -254,16 +259,28 @@
           <div class="workspace-section workspace-col workspace-note-section">
             <div class="workspace-section-header">
               <div class="workspace-section-title">Clinical Note</div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <button class="btn btn-sm btn-primary" id="btn-generate-clinical-note">Draft Note</button>
-                <button class="btn btn-sm btn-success" id="btn-complete-appointment">Complete Appointment</button>
-                <span class="note-status-badge" id="workspace-note-status"></span>
-              </div>
+              <span class="note-status-badge" id="workspace-note-status"></span>
             </div>
             <div class="workspace-col-body">
               <div id="workspace-note-content" class="workspace-editor" contenteditable="true" data-placeholder="Document your clinical observations, assessment, and plan..."></div>
               <div class="workspace-note-footer">
                 <span class="note-last-saved" id="workspace-note-saved"></span>
+              </div>
+              <div class="workspace-note-toolbar">
+                <div class="workspace-note-toolbar-left">
+                  <button class="btn btn-sm btn-ghost" id="btn-generate-clinical-note">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    AI Draft
+                  </button>
+                  <button class="btn btn-sm btn-ghost" id="btn-copy-external-note" title="Copy for external medical centre system (Best Practice / Medical Director)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    Copy
+                  </button>
+                </div>
+                <button class="btn btn-success btn-prominent" id="btn-complete-appointment">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><polyline points="20 6 9 17 4 12"/></svg>
+                  Complete Appointment
+                </button>
               </div>
               <div id="complete-confirmation-bar" class="complete-confirmation-bar hidden">
                 <span>Review the final note above, then confirm completion.</span>
@@ -354,6 +371,16 @@
                               <button class="filter-pill" data-value="Budget"><span class="pill-icon">&#128176;</span> Budget</button>
                               <button class="filter-pill" data-value="Core"><span class="pill-icon">&#11088;</span> Core</button>
                               <button class="filter-pill" data-value="Craft"><span class="pill-icon">&#10024;</span> Craft</button>
+                            </div>
+                          </div>
+                          <div class="filter-group" data-filter-group="terpene">
+                            <div class="filter-group-label">Terpene-rich <span class="filter-count hidden">0</span></div>
+                            <div class="filter-group-pills">
+                              <button class="filter-pill" data-value="beta_caryophyllene" title="Beta-caryophyllene — anti-inflammatory; CB2 binding">BCP (β-caryophyllene)</button>
+                              <button class="filter-pill" data-value="myrcene" title="Myrcene — sedating; muscle relaxant">Myrcene</button>
+                              <button class="filter-pill" data-value="limonene" title="Limonene — mood lift; anti-anxiety">Limonene</button>
+                              <button class="filter-pill" data-value="linalool" title="Linalool — calming; sleep">Linalool</button>
+                              <button class="filter-pill" data-value="alpha_pinene" title="Pinene — alertness; counters short-term memory loss">Pinene</button>
                             </div>
                           </div>
                           <div class="filter-group" data-filter-group="price">
@@ -526,6 +553,92 @@
         </div>
         <div id="timeslots-calendar" class="calendar-container" aria-label="My Timeslots calendar"></div>
       </div>
+      <!-- ═══ EDUCATION VIEW (7.1) ═══ -->
+      <div id="view-education" class="view hidden">
+        <div class="view-toolbar">
+          <h2 class="view-title" style="margin:0">Doctors Education Portal</h2>
+        </div>
+        <div class="education-page" style="max-width:1100px;margin:0 auto;padding:8px 0 40px;">
+          <p style="color:#475569;margin:8px 0 24px;">Reference materials for prescribing at The Happy Clinic. PDFs open in a new tab — save locally if you need offline access.</p>
+
+          <section class="education-section" style="margin-bottom:32px;">
+            <h3 style="font-size:15px;font-weight:600;margin:0 0 12px;color:#1a1a2e;">Quick Reference</h3>
+            <div class="education-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+              <a class="education-card" href="/docs/For%20Doctors/Happy_Clinic_Wall_Chart_Premium.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Happy Clinic Wall Chart</div>
+                <div style="font-size:13px;color:#64748b;">Visual reference for prescribing decisions</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/current%20products%20to%20consider.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Current Products to Consider</div>
+                <div style="font-size:13px;color:#64748b;">Up-to-date prescribing reference</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/BCP_Prescriber_Info_Sheet.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">BCP Prescriber Info Sheet</div>
+                <div style="font-size:13px;color:#64748b;">Beta-caryophyllene clinical guidance</div>
+              </a>
+            </div>
+          </section>
+
+          <section class="education-section" style="margin-bottom:32px;">
+            <h3 style="font-size:15px;font-weight:600;margin:0 0 12px;color:#1a1a2e;">Foundations</h3>
+            <div class="education-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+              <a class="education-card" href="/docs/For%20Doctors/Precision_Cannabis_Blueprint.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Precision Cannabis Blueprint</div>
+                <div style="font-size:13px;color:#64748b;">Foundational prescribing framework</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/Precision_Cannabis_Masterclass2.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Precision Cannabis Masterclass</div>
+                <div style="font-size:13px;color:#64748b;">Deeper-dive curriculum</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/Internal%20Position%20Statement%20THC%20TGA.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Internal Position Statement (THC / TGA)</div>
+                <div style="font-size:13px;color:#64748b;">THC clinic position on TGA framework</div>
+              </a>
+            </div>
+          </section>
+
+          <section class="education-section" style="margin-bottom:32px;">
+            <h3 style="font-size:15px;font-weight:600;margin:0 0 12px;color:#1a1a2e;">Research Library — Cannabinoids &amp; Terpenes</h3>
+            <div class="education-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+              <a class="education-card" href="/docs/For%20Doctors/Select%20Science%20Papers%20Cannabinoids%20and%20Terpenes/CANNABISTERPENESINRELATIONTOHUMANHEALTH.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Cannabis Terpenes in Relation to Human Health</div>
+                <div style="font-size:13px;color:#64748b;">Foundational survey of terpene effects</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/Select%20Science%20Papers%20Cannabinoids%20and%20Terpenes/Phytochemical_Modulators_of_Nociception_A_Review_o.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Phytochemical Modulators of Nociception</div>
+                <div style="font-size:13px;color:#64748b;">Pain-pathway pharmacology review</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/Select%20Science%20Papers%20Cannabinoids%20and%20Terpenes/Secondary_Terpenes_in_Cannabis_sativa_L_Synthesis_.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Secondary Terpenes in Cannabis sativa L.</div>
+                <div style="font-size:13px;color:#64748b;">Terpene synthesis &amp; profiling</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/Select%20Science%20Papers%20Cannabinoids%20and%20Terpenes/SelectedcannabisterpenessynergizewithTHCtoproduceincreasedCB1.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Terpene–THC Synergy at CB1</div>
+                <div style="font-size:13px;color:#64748b;">Entourage effect at the receptor level</div>
+              </a>
+              <a class="education-card" href="/docs/For%20Doctors/Select%20Science%20Papers%20Cannabinoids%20and%20Terpenes/molecules-25-05792-v3.pdf" target="_blank" rel="noopener" style="display:block;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-decoration:none;color:#1a1a2e;">
+                <div style="font-weight:600;margin-bottom:4px;">Molecules — Cannabinoids Review</div>
+                <div style="font-size:13px;color:#64748b;">Open-access pharmacology paper</div>
+              </a>
+            </div>
+            <p style="font-size:12px;color:#94a3b8;margin-top:8px;">Older / archive papers are stored alongside in <code>docs/For Doctors/Select Science Papers Cannabinoids and Terpenes/Archive/</code>.</p>
+          </section>
+
+          <section class="education-section">
+            <h3 style="font-size:15px;font-weight:600;margin:0 0 12px;color:#1a1a2e;">Search-term reference</h3>
+            <p style="font-size:13px;color:#475569;">The product picker accepts plain-language queries — synonyms are mapped automatically. Examples:</p>
+            <ul style="font-size:13px;color:#475569;line-height:1.7;">
+              <li><code>sleep</code> ↔ <code>insomnia</code></li>
+              <li><code>pain</code> ↔ <code>chronic pain</code>, <code>neuropathic</code>, <code>arthritis</code>, <code>fibromyalgia</code></li>
+              <li><code>anxiety</code> ↔ <code>GAD</code>, <code>panic</code></li>
+              <li><code>nausea</code> ↔ <code>chemo</code>, <code>CINV</code></li>
+              <li><code>BCP</code> ↔ <code>beta-caryophyllene</code>, <code>caryophyllene</code></li>
+              <li><code>MS</code> ↔ <code>multiple sclerosis</code></li>
+            </ul>
+          </section>
+        </div>
+      </div>
+
       <!-- ═══ SETTINGS VIEW ═══ -->
       <div id="view-settings" class="view hidden">
         <div class="view-toolbar">
