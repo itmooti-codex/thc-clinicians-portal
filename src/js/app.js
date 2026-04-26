@@ -14,6 +14,7 @@
   var enrichedItemsCache = [];  // Full product data for recommendation engine
   var currentPatientId = null;  // Currently viewed patient
   var currentAppointmentId = null; // Currently open appointment workspace
+  var currentAppointmentType = null; // 'Initial Consultation' | 'Follow Up Consultation' | etc — used by 3.5
   var workspaceNoteId = null;  // ID of the note being edited in workspace (null = new)
   var currentPatientIntake = null; // Patient intake data for prescribing
   var currentRecommendations = null; // Last generated recommendations
@@ -663,27 +664,30 @@
       });
     }
 
-    // Video consultation buttons
+    // Video consultation buttons. Two start buttons: full video (telehealth)
+    // and audio-only (in-person — doctor's camera off, mic + transcript on).
     var btnStartVideo = u.byId('btn-start-video');
+    var btnStartAudio = u.byId('btn-start-audio');
     var btnEndVideo = u.byId('btn-end-video');
     var btnToggleVideo = u.byId('btn-toggle-video-size');
-    if (btnStartVideo) btnStartVideo.addEventListener('click', function () {
-      if (currentAppointmentId && window.VideoConsultation) {
-        // Check if there's already an active call for a different appointment
-        if (window.VideoConsultation.isActive()) {
-          var info = window.VideoConsultation.getActiveCallInfo();
-          if (info && String(info.appointmentId) !== String(currentAppointmentId)) {
-            if (!confirm('You have a live call with ' + (info.patientName || 'a patient') + '. End it to start a new one?')) return;
-            window.VideoConsultation.endCall();
-          }
+    function startConsultation(audioOnly) {
+      if (!currentAppointmentId || !window.VideoConsultation) return;
+      // Check if there's already an active call for a different appointment
+      if (window.VideoConsultation.isActive()) {
+        var info = window.VideoConsultation.getActiveCallInfo();
+        if (info && String(info.appointmentId) !== String(currentAppointmentId)) {
+          if (!confirm('You have a live call with ' + (info.patientName || 'a patient') + '. End it to start a new one?')) return;
+          window.VideoConsultation.endCall();
         }
-        var session = window.ClinicianAuth ? window.ClinicianAuth.getSession() : null;
-        var doctorName = session ? ('Dr. ' + (session.firstName || '') + ' ' + (session.lastName || '')).trim() : 'Doctor';
-        var patient = allPatients.find(function (p) { return p.id == currentPatientId; }) || {};
-        var patientName = ((patient.first_name || '') + ' ' + (patient.last_name || '')).trim() || 'Patient';
-        window.VideoConsultation.startCall(currentAppointmentId, doctorName, currentPatientId, patientName);
       }
-    });
+      var session = window.ClinicianAuth ? window.ClinicianAuth.getSession() : null;
+      var doctorName = session ? ('Dr. ' + (session.firstName || '') + ' ' + (session.lastName || '')).trim() : 'Doctor';
+      var patient = allPatients.find(function (p) { return p.id == currentPatientId; }) || {};
+      var patientName = ((patient.first_name || '') + ' ' + (patient.last_name || '')).trim() || 'Patient';
+      window.VideoConsultation.startCall(currentAppointmentId, doctorName, currentPatientId, patientName, { audioOnly: !!audioOnly });
+    }
+    if (btnStartVideo) btnStartVideo.addEventListener('click', function () { startConsultation(false); });
+    if (btnStartAudio) btnStartAudio.addEventListener('click', function () { startConsultation(true); });
     if (btnEndVideo) btnEndVideo.addEventListener('click', function () {
       if (window.VideoConsultation) {
         lastTranscriptText = window.VideoConsultation.getTranscriptText() || '';
@@ -887,6 +891,12 @@
     // Generate Clinical Note button
     var btnGenNote = u.byId('btn-generate-clinical-note');
     if (btnGenNote) btnGenNote.addEventListener('click', handleGenerateClinicalNote);
+
+    // Copy note for external medical-centre system (6.1) — prepends the
+    // standardised header, strips HTML, copies as plain text suitable for
+    // pasting into Best Practice / Medical Director.
+    var btnCopyExternal = u.byId('btn-copy-external-note');
+    if (btnCopyExternal) btnCopyExternal.addEventListener('click', handleCopyExternalNote);
 
     // Appointment card clicks → open workspace (delegated)
     document.addEventListener('click', function (e) {
@@ -1180,13 +1190,7 @@
 
       // Clear all filters
       if (target.closest('#btn-clear-filters')) {
-        u.$$('#prescribe-filters .filter-pill.active').forEach(function (p) { p.classList.remove('active'); });
-        u.$$('#prescribe-filters .filter-count').forEach(function (c) { c.classList.add('hidden'); c.textContent = '0'; });
-        var pm = u.byId('filter-price-min'); if (pm) pm.value = '';
-        var px = u.byId('filter-price-max'); if (px) px.value = '';
-        var si = u.byId('prescribe-product-search'); if (si) si.value = '';
-        var sortSel = u.byId('product-sort'); if (sortSel) sortSel.value = 'relevance';
-        updateAdvancedFilterCount();
+        resetPrescribeFilters();
         runProductSearch();
         return;
       }
@@ -1269,6 +1273,8 @@
     } else if (tab === 'formulary') {
       u.byId('view-formulary').classList.remove('hidden');
       runFormularySearch();
+    } else if (tab === 'education') {
+      u.byId('view-education').classList.remove('hidden');
     } else if (tab === 'settings') {
       u.byId('view-settings').classList.remove('hidden');
       populateSettingsForm();
@@ -1389,6 +1395,31 @@
   }
 
   function showView(view) {
+    // 2.4 — Warn the doctor before leaving an active appointment workspace
+    // without completing. Skips the warning if leaving was triggered by the
+    // completion flow (which sets _suppressLeaveWarning) and if the user is
+    // simply moving between dashboard tabs without an active appointment.
+    var leavingActiveAppt = (
+      view !== 'appointment-workspace' &&
+      currentAppointmentId &&
+      !u.byId('view-appointment-workspace').classList.contains('hidden') &&
+      !window._suppressLeaveWarning
+    );
+    if (leavingActiveAppt) {
+      var pt = allPatients.find(function (p) { return p.id == currentPatientId; });
+      var name = pt ? ((pt.first_name || '') + ' ' + (pt.last_name || '')).trim() : 'this patient';
+      var ok = window.confirm(
+        "Don't forget to complete your appointment for " + (name || 'this patient') + ".\n\n" +
+        'OK = Stay and complete now\nCancel = Leave anyway'
+      );
+      if (ok) {
+        // Scroll to the Complete button so the doctor sees it.
+        var completeBtn = u.byId('btn-complete-appointment');
+        if (completeBtn) completeBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return; // abort navigation
+      }
+      // Continue navigating away.
+    }
     u.$$('.view').forEach(function (v) { v.classList.add('hidden'); });
 
     // When leaving workspace: detach (keep call alive) or cleanup (no call)
@@ -1411,7 +1442,7 @@
     if (el) el.classList.remove('hidden');
 
     // Sync tab bar active state for main tabs
-    var mainTabs = ['patients', 'appointments', 'timeslots', 'formulary'];
+    var mainTabs = ['today', 'patients', 'appointments', 'timeslots', 'formulary', 'education', 'settings'];
     if (mainTabs.indexOf(view) >= 0) {
       u.$$('#main-tabs .tab-btn').forEach(function (btn) {
         btn.classList.toggle('active', btn.dataset.tab === view);
@@ -1630,6 +1661,19 @@
 
   // ── Patient Detail ─────────────────────────────────────────
 
+  // Clear prescribe filter state — pill activations, price range, search box,
+  // sort. Used by both the "Clear filters" button and patient switching (2.3
+  // — filters from the previous patient must not bleed into the next visit).
+  function resetPrescribeFilters() {
+    u.$$('#prescribe-filters .filter-pill.active').forEach(function (p) { p.classList.remove('active'); });
+    u.$$('#prescribe-filters .filter-count').forEach(function (c) { c.classList.add('hidden'); c.textContent = '0'; });
+    var pm = u.byId('filter-price-min'); if (pm) pm.value = '';
+    var px = u.byId('filter-price-max'); if (px) px.value = '';
+    var si = u.byId('prescribe-product-search'); if (si) si.value = '';
+    var sortSel = u.byId('product-sort'); if (sortSel) sortSel.value = 'relevance';
+    if (typeof updateAdvancedFilterCount === 'function') updateAdvancedFilterCount();
+  }
+
   function openPatientDetail(patientId) {
     var patient = allPatients.find(function (p) { return p.id === patientId; });
     if (!patient) {
@@ -1641,6 +1685,7 @@
     currentPatientIntake = null;
     currentRecommendations = null;
     if (prescribe) prescribe.clearCart();
+    resetPrescribeFilters();
 
     renderPatientHero(patient);
     renderPatientSummary(patientId);
@@ -2862,8 +2907,30 @@
 
   function openItemDetailPage(itemId) {
     var item = enrichedItemsCache.find(function (i) { return i.id === itemId; }) || itemsMap[itemId];
-    if (!item) { u.showToast('Product not found', 'error'); return; }
+    if (item) {
+      renderItemDetailView(item);
+      return;
+    }
 
+    // Cache miss — likely an archived/unavailable item that fetchEnrichedItems
+    // (which filters status="In Stock") omitted. Fall back to a direct fetch
+    // by id. Required for 1.7 — doctors must be able to view archived products.
+    u.showPageLoader('Loading product...');
+    data.fetchItemById(itemId).then(function (fetched) {
+      u.hidePageLoader();
+      if (!fetched) {
+        u.showToast('Product not found', 'error');
+        return;
+      }
+      renderItemDetailView(fetched);
+    }).catch(function (err) {
+      u.hidePageLoader();
+      u.logError('openItemDetailPage/fetchItemById', err, { itemId: itemId });
+      u.showToast('Failed to load product: ' + (err.message || 'Unknown error'), 'error');
+    });
+  }
+
+  function renderItemDetailView(item) {
     // Remember current view for back button
     if (!u.byId('view-item-detail').classList.contains('hidden')) {
       // Already on item detail — just update (for similar product clicks)
@@ -3117,6 +3184,7 @@
 
       // Find this appointment
       var appointment = appointments.find(function (a) { return a.id == appointmentId; });
+      currentAppointmentType = appointment ? appointment.type : null;
 
       // Render header with full patient details
       renderWorkspaceHeader(appointment, patient);
@@ -3431,8 +3499,18 @@
             }
           }
         }).catch(function (err) {
-          console.error('Failed to update script:', err);
-          u.showToast('Failed to update script', 'error');
+          u.logError('updateScript', err, { scriptId: scriptId });
+          // Distinguish "script not found" (404) from generic API failures so
+          // the doctor knows whether to refresh or escalate. Errors stay visible
+          // ≥6s via the toast duration default.
+          var msg = err && err.message ? err.message : '';
+          var notFound = /\b404\b/.test(msg) || /not found/i.test(msg);
+          u.showToast(
+            notFound
+              ? 'Script not found \u2014 please refresh the page and try again'
+              : 'Failed to update script: ' + (msg || 'Unknown error'),
+            'error'
+          );
           btn.disabled = false;
           btn.textContent = 'Save Changes';
         });
@@ -3505,35 +3583,74 @@
     var edited = prescribe.collectEditableIntake();
     var statusEl = u.byId('workspace-intake-status');
 
-    // Build Ontraport field payload using field IDs (writes still go through Ontraport API)
+    // Build payload using LEGACY snake_case Contact field names. data.js's
+    // updatePatientIntake shim routes the migrated keys (conditions, severity,
+    // experience, preferences, meds, allergies) to the patient's Latest Intake
+    // Form ClinicalNote and the rest to Contact.
     var payload = {};
-    // Conditions: set each boolean field using Ontraport field IDs
-    for (var condName in CONDITION_FIELD_IDS) {
+    // Conditions: legacy snake_case names from CONDITION_FIELDS (label → field).
+    for (var condName in CONDITION_FIELDS) {
       var isChecked = edited.primaryConditions.indexOf(condName) !== -1;
-      payload[CONDITION_FIELD_IDS[condName]] = isChecked ? '1' : '0';
+      payload[CONDITION_FIELDS[condName]] = isChecked ? '1' : '0';
     }
-    // Experience level + preferences (using Ontraport field IDs)
-    payload[INTAKE_FIELD_IDS.experienceLevel] = edited.experienceLevel;
-    payload[INTAKE_FIELD_IDS.thcComfort] = COMFORT_TO_PRODUCT_PREF[edited.thcComfort] || edited.thcComfort;
-    payload[INTAKE_FIELD_IDS.budgetRange] = edited.budgetRange;
+    // Experience level + preferences. The legacy Contact fields used these
+    // exact names; the data.js shim now routes them to the ClinicalNote.
+    payload['Experience_Level'] = edited.experienceLevel;
+    // thcComfort historically wrote a converted option-id to product_preference.
+    // After migration, the new Product_Preference_intake field accepts string
+    // labels directly — pass the label through unchanged.
+    var thcLabel = (function () {
+      // Inverse of COMFORT_TO_PRODUCT_PREF: convert "Mostly THC" → "Higher THC"
+      // so the new dropdown's string-labelled options match.
+      var inv = { 'Mostly CBD': 'Higher CBD', 'CBD only': 'Higher CBD', 'Balanced': 'Balanced', 'Mostly THC': 'Higher THC', 'Open to anything': '' };
+      return inv[edited.thcComfort] || edited.thcComfort || '';
+    })();
+    if (thcLabel) payload['product_preference'] = thcLabel;
+    payload['Budget_Range'] = edited.budgetRange;
     // Medications + allergies
-    payload[INTAKE_FIELD_IDS.medications] = edited.medications;
-    payload[INTAKE_FIELD_IDS.allergies] = edited.allergies;
+    payload['list_your_medications_supplements'] = edited.medications;
+    payload['allergies_information'] = edited.allergies;
 
-    if (statusEl) statusEl.textContent = 'Saving...';
+    // Preferences (route via INTAKE_FORM_LEGACY_KEYS → Intake Form ClinicalNote)
+    if (edited.lineage_preference != null) payload['lineage_preference'] = edited.lineage_preference;
+    if (edited.effect_preference != null) payload['effect_preference'] = edited.effect_preference;
+    if (edited.Intake_Onset_Preference != null) payload['Intake_Onset_Preference'] = edited.Intake_Onset_Preference;
+    if (edited.Intake_Organic_Preference != null) payload['Intake_Organic_Preference'] = edited.Intake_Organic_Preference;
+    // Lifestyle / safety
+    if (edited.Drives_Regularly != null) payload['Drives_Regularly'] = edited.Drives_Regularly;
+    if (edited.Heavy_Machinery != null) payload['Heavy_Machinery'] = edited.Heavy_Machinery;
+    if (edited.Shift_Work != null) payload['Shift_Work'] = edited.Shift_Work;
+
+    if (statusEl) {
+      statusEl.textContent = 'Saving...';
+      statusEl.className = 'intake-rescore-status saving';
+    }
 
     data.updatePatientIntake(currentPatientId, payload).then(function () {
       // Update local state so recommendations use the new values
       currentPatientIntake = Object.assign(currentPatientIntake || {}, edited);
-      scoreCacheReady = false; // Invalidate score cache — will re-score on next search
-      if (statusEl) statusEl.textContent = 'Saved';
-      setTimeout(function () { if (statusEl) statusEl.textContent = ''; }, 2000);
-      // Re-score if prescribe section is open
-      var ps = u.byId('workspace-prescribe-section');
-      if (ps && ps.open) { setTimeout(cacheProductScores, 500); }
+      scoreCacheReady = false;
+      // Re-score whenever intake changes (regardless of whether prescribe section is open)
+      // so when the doctor next opens it the rankings reflect the latest data.
+      if (enrichedItemsCache.length > 0) {
+        if (statusEl) {
+          statusEl.textContent = 'Updating recommendations…';
+          statusEl.className = 'intake-rescore-status updating';
+        }
+        setTimeout(cacheProductScores, 300);
+      } else {
+        if (statusEl) {
+          statusEl.textContent = '✓ Saved';
+          statusEl.className = 'intake-rescore-status updated';
+          setTimeout(function () { if (statusEl) { statusEl.textContent = ''; statusEl.className = 'intake-rescore-status'; } }, 4000);
+        }
+      }
     }).catch(function (err) {
       console.error('Failed to save intake:', err);
-      if (statusEl) statusEl.textContent = 'Save failed';
+      if (statusEl) {
+        statusEl.textContent = 'Save failed';
+        statusEl.className = 'intake-rescore-status failed';
+      }
     });
   }
 
@@ -3900,6 +4017,54 @@
     });
   }
 
+  // ── Copy note for external medical-centre system (6.1) ────────
+
+  // Standardised first line for any note pasted into Best Practice /
+  // Medical Director. Per the brief, this header MUST appear first in the
+  // external copy/paste output and must not appear in the internal note.
+  var EXTERNAL_NOTE_HEADER = 'The patient has been seen and scripts will be processed through The Happy Clinic system';
+
+  function handleCopyExternalNote() {
+    var noteEditor = u.byId('workspace-note-content');
+    if (!noteEditor) return;
+    // Convert HTML → plain text with line breaks. The note editor is contenteditable
+    // and may contain <p>/<br>/<div> wrappers from the AI compile step.
+    var temp = document.createElement('div');
+    temp.innerHTML = noteEditor.innerHTML;
+    // Replace block-ish elements with newlines before extracting text.
+    temp.querySelectorAll('br').forEach(function (br) { br.replaceWith('\n'); });
+    temp.querySelectorAll('p, div').forEach(function (el) {
+      el.insertAdjacentText('afterend', '\n');
+    });
+    var body = (temp.textContent || temp.innerText || '').replace(/\n{3,}/g, '\n\n').trim();
+    var payload = EXTERNAL_NOTE_HEADER + '\n\n' + (body || '(empty note)');
+
+    var fallback = function () {
+      // Older browsers / non-secure contexts — use textarea + execCommand.
+      var ta = document.createElement('textarea');
+      ta.value = payload;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { u.logError('handleCopyExternalNote/fallback', e); }
+      ta.remove();
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(payload).then(function () {
+        u.showToast('Note copied — paste into your medical centre system', 'success');
+      }).catch(function (err) {
+        u.logError('handleCopyExternalNote/clipboard', err);
+        fallback();
+        u.showToast('Note copied (fallback) — paste into your medical centre system', 'success');
+      });
+    } else {
+      fallback();
+      u.showToast('Note copied — paste into your medical centre system', 'success');
+    }
+  }
+
   // ── Complete Appointment ──────────────────────────────────────
 
   function handleCompleteAppointment() {
@@ -4107,20 +4272,154 @@
   }
 
   function confirmCompleteAppointment() {
+    if (!currentAppointmentId) {
+      u.showToast('No appointment context', 'error');
+      return;
+    }
+
+    var btn = u.byId('btn-confirm-complete');
+    if (btn) { btn.disabled = true; btn.textContent = 'Completing...'; }
+
+    var apptId = currentAppointmentId;
+    var patientId = currentPatientId;
+    var patient = allPatients.find(function (p) { return p.id == patientId; }) || {};
+    var patientName = ((patient.first_name || '') + ' ' + (patient.last_name || '')).trim() || 'patient';
+
+    // 1a. If this is an Initial Consultation, append the intake form as plain
+    //     text to the note (3.5 — Mario needs to copy/paste it into Best
+    //     Practice / Medical Director). Subsequent consults must NOT duplicate
+    //     this — only on the first consult.
+    if (currentAppointmentType === 'Initial Consultation' && currentPatientIntake) {
+      appendIntakeToNoteForExternalCopy();
+    }
+    // 1b. Persist the doctor's note before any side-effect work.
     saveWorkspaceNote();
 
-    data.updateAppointment(currentAppointmentId, { status: 'Completed' }).then(function () {
-      u.showToast('Appointment completed', 'success');
+    // 2. Stop video / recording (5.1). endCall() leaves the Daily.co room which
+    //    stops cloud recording. Wrap defensively — completion must not abort if
+    //    the call is already ended.
+    if (window.VideoConsultation && window.VideoConsultation.isActive && window.VideoConsultation.isActive()) {
+      try { window.VideoConsultation.endCall(); }
+      catch (e) { u.logError('confirmCompleteAppointment/endCall', e); }
+    }
+
+    // 3. Transition Draft scripts attached to this appointment to "To Be Processed" (1.3).
+    //    Draft is the correct status while the doctor is in-appointment; closing
+    //    the appointment is what flips the scripts to processing for the pharmacy.
+    //    Reads script IDs from the workspace DOM to avoid VitalSync sync lag.
+    transitionDraftScriptsForAppointment(apptId).then(function (movedCount) {
+      if (movedCount > 0) {
+        u.showToast(movedCount + ' script' + (movedCount === 1 ? '' : 's') + ' moved to processing', 'success');
+      }
+    }).catch(function (err) {
+      u.logError('confirmCompleteAppointment/transitionScripts', err);
+      u.showToast('Some scripts could not be transitioned: ' + (err.message || 'Unknown'), 'error');
+    });
+
+    // 4. Mark the appointment Completed.
+    data.updateAppointment(apptId, { status: 'Completed' }).then(function () {
+      // 5. Visible confirmation + clean reset (2.2).
+      u.showToast('Appointment with ' + patientName + ' completed', 'success');
       var confirmBar = u.byId('complete-confirmation-bar');
       if (confirmBar) confirmBar.classList.add('hidden');
-      // Update the appointment status chip in the context banner
       var bannerRight = document.querySelector('.context-banner-right');
       if (bannerRight) bannerRight.innerHTML = '<span class="chip chip-completed">Completed</span>';
       lastTranscriptText = null;
+      // Brief delay so the doctor sees the toast/banner before the view changes.
+      setTimeout(function () { resetWorkspaceAfterCompletion(); }, 1500);
     }).catch(function (err) {
-      console.error('Failed to complete appointment:', err);
+      u.logError('confirmCompleteAppointment/updateAppointment', err);
       u.showToast('Note saved but failed to update appointment status: ' + (err.message || 'Unknown error'), 'error');
+    }).finally(function () {
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Complete'; }
     });
+  }
+
+  // Find every Draft script tied to this appointment and update each to
+  // "To Be Processed". Returns the number successfully moved.
+  //
+  // We read the script IDs from the workspace DOM (the Edit button is only
+  // rendered for Draft scripts at app.js:3307) rather than via fetchScripts.
+  // Going through fetchScripts queries VitalSync, which lags behind Ontraport
+  // — scripts created during the current session may not have synced yet, so
+  // a fresh-appointment completion would find zero drafts and silently no-op.
+  // Same root cause as 1.1 — write OP / read VitalSync.
+  function transitionDraftScriptsForAppointment(appointmentId /*, patientId */) {
+    if (!appointmentId) return Promise.resolve(0);
+    var draftBtns = u.$$('#workspace-scripts .btn-edit-script[data-script-id]');
+    var ids = draftBtns
+      .map(function (btn) { return btn.dataset.scriptId; })
+      .filter(function (id) { return !!id; });
+    if (ids.length === 0) return Promise.resolve(0);
+    return Promise.all(ids.map(function (id) {
+      return data.updateScript(id, { status: 'To Be Processed' });
+    })).then(function () { return ids.length; });
+  }
+
+  // Clean reset after appointment completion — clears workspace state and
+  // returns the doctor to the appointments dashboard.
+  function resetWorkspaceAfterCompletion() {
+    currentAppointmentId = null;
+    currentAppointmentType = null;
+    currentPatientId = null;
+    currentPatientIntake = null;
+    currentRecommendations = null;
+    if (prescribe && prescribe.clearCart) prescribe.clearCart();
+    showView('appointments');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // 3.5 — Append the intake form as plain text to the workspace note so the
+  // doctor can copy/paste it into the external medical-centre system after a
+  // first consult. Plain text only (no markup) — pastes cleanly into Best
+  // Practice / Medical Director. Idempotent: skips if the marker is already
+  // present so multiple complete-clicks don't duplicate the section.
+  var INTAKE_APPEND_MARKER = '--- INTAKE FORM (FROM PATIENT) ---';
+  function appendIntakeToNoteForExternalCopy() {
+    var noteEditor = u.byId('workspace-note-content');
+    if (!noteEditor) return;
+    if ((noteEditor.textContent || '').indexOf(INTAKE_APPEND_MARKER) !== -1) return;
+    var lines = intakeToPlainTextLines(currentPatientIntake || {});
+    if (!lines.length) return;
+    var text = '\n\n' + INTAKE_APPEND_MARKER + '\n' + lines.join('\n');
+    // Append as a single <pre>-like block so contenteditable preserves line breaks.
+    var block = document.createElement('div');
+    block.style.whiteSpace = 'pre-wrap';
+    block.style.fontFamily = 'inherit';
+    block.textContent = text;
+    noteEditor.appendChild(block);
+  }
+
+  // Convert the intake object into a flat list of "Label: value" lines suitable
+  // for pasting into Best Practice / Medical Director (no markdown, no HTML).
+  function intakeToPlainTextLines(intake) {
+    var out = [];
+    var add = function (label, value) {
+      if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) return;
+      out.push(label + ': ' + (Array.isArray(value) ? value.join(', ') : value));
+    };
+    add('Primary conditions', intake.primaryConditions || intake.conditions);
+    add('Secondary conditions', intake.secondaryConditions);
+    add('Severity', intake.severity);
+    add('Duration', intake.conditionDuration || intake.duration);
+    add('Condition details', intake.conditionDetails);
+    add('Allergies', intake.allergies);
+    add('Current medications', intake.medications);
+    add('Why regular medicine isn\u2019t working', intake.whyRegularMedicineIsntWorking);
+    add('Cannabis experience', intake.experienceLevel || intake.experience_level);
+    add('Prior product feedback', intake.priorProductFeedback);
+    add('Drives regularly', intake.drivesRegularly);
+    add('Heavy machinery', intake.heavyMachinery);
+    add('Competitive sport', intake.competitiveSport);
+    add('Shift work', intake.shiftWork);
+    add('Tobacco frequency', intake.tobaccoFreq);
+    add('Alcohol units/week', intake.alcoholUnits);
+    add('Psychiatric history', intake.psychiatricHistory);
+    add('Family psychiatric history', intake.familyPsychHistory);
+    add('PHQ-2 Q1', intake.phq2Q1);
+    add('PHQ-2 Q2', intake.phq2Q2);
+    add('Substance use', intake.substanceUse);
+    return out;
   }
 
   // ── Prescribe: Intake, Recommendations, Cart, Script Creation ──
@@ -4177,17 +4476,12 @@
     'Palliative Care': 'palliative_care'
   };
 
-  // Condition name → Ontraport field ID (for writing via Ontraport API)
-  var CONDITION_FIELD_IDS = {
-    'Chronic Pain': 'f2305', 'Anxiety': 'f2310', 'Depression': 'f2311',
-    'PTSD': 'f2316', 'ADHD': 'f2984', 'Sleep Disorder': 'f2306',
-    'Epilepsy': 'f2317', 'Fibromyalgia': 'f2982', 'Arthritis': 'f2980',
-    'Migraines': 'f2315', 'Nausea / Vomiting': 'f2309', 'Endometriosis': 'f2981',
-    "Crohn's / IBS": 'f2340', 'Multiple Sclerosis': 'f2307', 'Inflammation': 'f2337',
-    'Neuropathic Pain': 'f2312', 'Cancer': 'f2339', "Parkinson's Disease": 'f2338',
-    'Loss of Appetite': 'f2331', 'Autism Spectrum': 'f2983', 'Glaucoma': 'f2334',
-    'Chronic Illness (other)': 'f2314', 'Palliative Care': 'f2308'
-  };
+  // (Deleted) CONDITION_FIELD_IDS used to map condition labels to old Contact
+  // field ids (f2305 etc.) for writing via Ontraport API. After the TGA
+  // Indications migration, condition writes go through `data.updatePatientIntake`
+  // which routes to the multi-select via `LEGACY_CONDITION_TO_TGA_LABELS`.
+  // The Contact-side condition columns still exist as stale data (Phase 1
+  // Step 7 cleanup pending) but are no longer the source of truth.
 
   // Ontraport dropdown option ID → label mappings
   var OPTION_LABELS = {
@@ -4261,11 +4555,11 @@
     additionalNotes: 'contact_comment', applicationStatus: 'application_status'
   };
 
-  // Intake key → Ontraport field ID (for writing via Ontraport API)
-  var INTAKE_FIELD_IDS = {
-    experienceLevel: 'f3339', thcComfort: 'f2691', budgetRange: 'f3346',
-    medications: 'f2320', allergies: 'f3026'
-  };
+  // (Deleted) INTAKE_FIELD_IDS used to map intake keys to old Contact field
+  // ids for writes. After the migration, writes flow through
+  // `data.updatePatientIntake` which routes legacy snake_case keys (Severity,
+  // Experience_Level, list_your_medications_supplements, allergies_information,
+  // product_preference) to the corresponding ClinicalNote fields.
 
   /**
    * Map GraphQL Contact fields to full intake structure.
@@ -4379,7 +4673,14 @@
       // ── Consent & Notes ──
       consent: bool(f.consent),
       consentAccuracy: bool(f.consentAccuracy),
-      additionalNotes: str(f.additionalNotes)
+      additionalNotes: str(f.additionalNotes),
+
+      // ── TGA Indications (canonical reporting set) ──
+      // Populated by data.js's mapIntakeFormToContactShape from the
+      // ClinicalNote's TGA Indications multi-select. The patient-friendly
+      // condition chips above are derived FROM this in the data layer; this
+      // array is the authoritative TGA-aligned list for reporting.
+      tgaIndications: Array.isArray(d.__tgaIndications) ? d.__tgaIndications.slice() : []
     };
   }
 
@@ -4421,6 +4722,20 @@
       scoreCacheReady = true;
 
       if (statusEl) statusEl.classList.add('hidden');
+
+      // Update the visible "Recommendations updated" pill on the editable intake
+      var rescoreStatus = u.byId('workspace-intake-status');
+      if (rescoreStatus) {
+        rescoreStatus.textContent = '✓ Recommendations updated';
+        rescoreStatus.className = 'intake-rescore-status updated';
+        setTimeout(function () {
+          if (rescoreStatus) {
+            rescoreStatus.textContent = '';
+            rescoreStatus.className = 'intake-rescore-status';
+          }
+        }, 5000);
+      }
+
       if (window.AppConfig && window.AppConfig.DEBUG) {
         console.log('Score cache built:', results.length, 'scored items from', enrichedItemsCache.length, 'products');
       }
@@ -4587,6 +4902,7 @@
     var dominances = getActiveFilterValues('dominance');
     var lineages = getActiveFilterValues('lineage');
     var subTypes = getActiveFilterValues('subtype');
+    var terpenes = getActiveFilterValues('terpene'); // 4.4 — BCP, Myrcene, Limonene, Linalool, Pinene
 
     var priceMinEl = u.byId('filter-price-min');
     var priceMaxEl = u.byId('filter-price-max');
@@ -4627,6 +4943,20 @@
       // Sub type filter (OR within group)
       if (subTypes.length > 0) {
         if (subTypes.indexOf(item.sub_type || '') === -1) return false;
+      }
+
+      // Terpene filter (OR within group) — item must have ≥0.3% of any selected
+      // terpene to qualify. Treats α/β-pinene combined under 'alpha_pinene'.
+      if (terpenes.length > 0) {
+        var matched = false;
+        for (var ti = 0; ti < terpenes.length; ti++) {
+          var key = terpenes[ti];
+          var v = parseFloat(item[key]) || 0;
+          // Pinene chip aggregates both α and β.
+          if (key === 'alpha_pinene') v = Math.max(v, parseFloat(item.beta_pinene) || 0);
+          if (v >= 0.3) { matched = true; break; }
+        }
+        if (!matched) return false;
       }
 
       // Price range
@@ -5871,4 +6201,117 @@
     if (!str || str.length <= max) return str;
     return str.substring(0, max) + '...';
   }
+
+  // ── 4.2 Product hover popup ──────────────────────────────────
+  // Shows a quick-view popover (terpene profile, cannabinoids, dominance,
+  // format, dosing) when the doctor hovers over a product row. 250ms delay
+  // prevents flicker from casual mouse movement. Hidden on mouseleave or
+  // when the cursor enters the popover-free zone. Touch devices: skip hover
+  // (no mouseover events fire reliably) — those users can tap to open detail.
+  (function initProductHoverPopup() {
+    var popover = null;
+    var showTimer = null;
+    var currentItemId = null;
+
+    function ensurePopover() {
+      if (popover) return popover;
+      popover = document.createElement('div');
+      popover.id = 'product-hover-popup';
+      popover.style.cssText =
+        'position:fixed;z-index:9999;max-width:340px;background:#fff;border:1px solid #e2e8f0;' +
+        'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:12px 14px;' +
+        'font-size:13px;line-height:1.45;color:#1a1a2e;display:none;pointer-events:none;';
+      document.body.appendChild(popover);
+      return popover;
+    }
+
+    function buildContent(item) {
+      var esc = (window.AppUtils && window.AppUtils.escapeHtml) || function (s) { return s; };
+      var RE = window.RecommendEngine;
+      var topTerps = (RE && RE.getTopTerpenes) ? RE.getTopTerpenes(item, 11) : [];
+      var totalT = (RE && RE.getTotalTerpenePercent) ? RE.getTotalTerpenePercent(item) : 0;
+      var html = '';
+      html += '<div style="font-weight:600;margin-bottom:4px;">' + esc(item.item_name || 'Product') + '</div>';
+      var meta = [];
+      if (item.brand) meta.push(esc(item.brand));
+      if (item.type) meta.push(esc(item.type));
+      if (item.dominance) meta.push(esc(item.dominance));
+      if (meta.length) html += '<div style="color:#64748b;margin-bottom:8px;">' + meta.join(' · ') + '</div>';
+
+      // Cannabinoids
+      var canna = [];
+      if (item.thc != null) canna.push('THC ' + item.thc);
+      if (item.cbd != null && parseFloat(item.cbd) > 0) canna.push('CBD ' + item.cbd);
+      if (item.cbg != null && parseFloat(item.cbg) > 0) canna.push('CBG ' + item.cbg);
+      if (item.cbn != null && parseFloat(item.cbn) > 0) canna.push('CBN ' + item.cbn);
+      if (canna.length) html += '<div style="margin-bottom:6px;"><strong>Cannabinoids:</strong> ' + canna.join(', ') + '</div>';
+
+      // Terpene profile (top up to 6)
+      if (topTerps && topTerps.length) {
+        var terps = topTerps.slice(0, 6).map(function (t) {
+          return esc(t.name) + ' ' + (t.value != null ? t.value.toFixed(2) : '?') + '%';
+        });
+        html += '<div style="margin-bottom:6px;"><strong>Terpene profile' + (totalT ? ' (total ' + totalT.toFixed(1) + '%)' : '') + ':</strong><br>' + terps.join(' · ') + '</div>';
+      }
+
+      if (item.dosage_form) html += '<div style="margin-bottom:4px;"><strong>Format:</strong> ' + esc(item.dosage_form) + '</div>';
+      if (item.dosage_instructions) {
+        var dos = String(item.dosage_instructions);
+        if (dos.length > 200) dos = dos.substring(0, 200) + '\u2026';
+        html += '<div style="margin-bottom:4px;"><strong>Dosing:</strong> ' + esc(dos) + '</div>';
+      }
+      if (item.onset_time) html += '<div style="color:#64748b;font-size:12px;">Onset: ' + esc(item.onset_time) + '</div>';
+      return html;
+    }
+
+    function position(e) {
+      if (!popover) return;
+      var pad = 14;
+      var w = popover.offsetWidth;
+      var h = popover.offsetHeight;
+      var x = e.clientX + pad;
+      var y = e.clientY + pad;
+      if (x + w > window.innerWidth - pad) x = e.clientX - w - pad;
+      if (y + h > window.innerHeight - pad) y = e.clientY - h - pad;
+      popover.style.left = Math.max(pad, x) + 'px';
+      popover.style.top = Math.max(pad, y) + 'px';
+    }
+
+    function hide() {
+      clearTimeout(showTimer);
+      showTimer = null;
+      currentItemId = null;
+      if (popover) popover.style.display = 'none';
+    }
+
+    document.addEventListener('mouseover', function (e) {
+      var row = e.target.closest && e.target.closest('.product-row[data-item-id]');
+      if (!row) return;
+      var itemId = parseInt(row.dataset.itemId, 10);
+      if (!itemId || itemId === currentItemId) return;
+      currentItemId = itemId;
+      clearTimeout(showTimer);
+      showTimer = setTimeout(function () {
+        var item = enrichedItemsCache.find(function (i) { return i.id === itemId; }) || itemsMap[itemId];
+        if (!item) return;
+        var pop = ensurePopover();
+        pop.innerHTML = buildContent(item);
+        pop.style.display = 'block';
+        position(e);
+      }, 250);
+    });
+
+    document.addEventListener('mousemove', function (e) {
+      if (popover && popover.style.display === 'block') position(e);
+    });
+
+    document.addEventListener('mouseout', function (e) {
+      var row = e.target.closest && e.target.closest('.product-row[data-item-id]');
+      if (!row) return;
+      // Only hide when the related target is outside the row.
+      var into = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.product-row[data-item-id]');
+      if (into && into === row) return;
+      hide();
+    });
+  })();
 })();

@@ -81,6 +81,19 @@
       html += item('Secondary', d.secondaryConditions.map(function (c) { return '<span class="chip chip-secondary">' + escHtml(c) + '</span>'; }).join(' '), true);
     }
 
+    // TGA Indications — the canonical TGA-reporting indications for this
+    // patient. Auto-populated from the patient's condition picks; clinicians
+    // refine during consult. This is the authoritative set for TGA submissions.
+    if (d.tgaIndications && d.tgaIndications.length > 0) {
+      html += item(
+        'TGA Indications',
+        d.tgaIndications.map(function (t) {
+          return '<span class="chip chip-tga" title="TGA-aligned indication">' + escHtml(t) + '</span>';
+        }).join(' '),
+        true
+      );
+    }
+
     // Condition details (duration + severity)
     if (d.conditionDetails) html += item('Duration & Severity', d.conditionDetails);
     if (d.severity) html += item('Current Severity', d.severity + ' / 10');
@@ -994,11 +1007,88 @@
     html += '<textarea id="ei-allergies" rows="2" placeholder="Including carrier oil allergies...">' + escHtml(d.allergies || '') + '</textarea></div>';
     html += '</div>';
 
-    // Safety flags (read-only display)
+    // ── Preferences (drives algorithm scoring) ──
+    var lineage = d.lineage_preference || d.lineagePreference || 'No preference';
+    var effect = d.effect_preference || d.effectPreference || '';
+    var onset = d.Intake_Onset_Preference || d.onsetPreference || 'No preference';
+    var organic = d.Intake_Organic_Preference || d.organicPreference || 'No preference';
+
+    html += '<div class="ei-section">';
+    html += '<div class="ei-label">Preferences <span class="ei-label-hint">— affects product ranking</span></div>';
+
+    // Lineage radio pills
+    html += '<div class="ei-radio-row" data-ei-radio="lineage">';
+    html += '<span class="ei-radio-row-label">Lineage</span>';
+    ['Indica-dominant','Sativa-dominant','Balanced','No preference'].forEach(function (opt) {
+      var sel = lineage === opt;
+      html += '<label class="ei-radio-pill' + (sel ? ' active' : '') + '"><input type="radio" name="ei-lineage" value="' + escAttr(opt) + '"' + (sel ? ' checked' : '') + '> ' + escHtml(opt) + '</label>';
+    });
+    html += '</div>';
+
+    // Effect radio pills
+    html += '<div class="ei-radio-row" data-ei-radio="effect">';
+    html += '<span class="ei-radio-row-label">Effect</span>';
+    [{v:'Faster Onset',l:'Faster Onset'},{v:'Longer Lasting',l:'Longer Lasting'},{v:'',l:'No preference'}].forEach(function (opt) {
+      var sel = effect === opt.v;
+      html += '<label class="ei-radio-pill' + (sel ? ' active' : '') + '"><input type="radio" name="ei-effect" value="' + escAttr(opt.v) + '"' + (sel ? ' checked' : '') + '> ' + escHtml(opt.l) + '</label>';
+    });
+    html += '</div>';
+
+    // Onset radio pills
+    html += '<div class="ei-radio-row" data-ei-radio="onset">';
+    html += '<span class="ei-radio-row-label">Onset</span>';
+    ['Fast (vape/flower)','Slow-sustained (oil/pastille)','Both','No preference'].forEach(function (opt) {
+      var sel = onset === opt;
+      html += '<label class="ei-radio-pill' + (sel ? ' active' : '') + '"><input type="radio" name="ei-onset" value="' + escAttr(opt) + '"' + (sel ? ' checked' : '') + '> ' + escHtml(opt) + '</label>';
+    });
+    html += '</div>';
+
+    // Organic radio pills
+    html += '<div class="ei-radio-row" data-ei-radio="organic">';
+    html += '<span class="ei-radio-row-label">Organic</span>';
+    ['Yes','No','No preference'].forEach(function (opt) {
+      var sel = organic === opt;
+      html += '<label class="ei-radio-pill' + (sel ? ' active' : '') + '"><input type="radio" name="ei-organic" value="' + escAttr(opt) + '"' + (sel ? ' checked' : '') + '> ' + escHtml(opt) + '</label>';
+    });
+    html += '</div>';
+    html += '</div>';
+
+    // ── Lifestyle / Safety (drives algorithm THC penalty) ──
+    var drives = d.drivesRegularly || d.Drives_Regularly || 'No';
+    var heavyMachinery = (d.Heavy_Machinery === true || d.Heavy_Machinery === 'Yes' || d.heavyMachinery === true) ? 'Yes' : 'No';
+    var shiftWork = (d.Shift_Work === true || d.Shift_Work === 'Yes' || d.shiftWork === true) ? 'Yes' : 'No';
+
+    html += '<div class="ei-section">';
+    html += '<div class="ei-label">Lifestyle &amp; Safety <span class="ei-label-hint">— affects THC safety penalties</span></div>';
+    html += '<div class="ei-row">';
+    html += '<div class="ei-field"><div class="ei-sublabel">Drives Regularly</div>';
+    html += '<select id="ei-drives">';
+    ['No','Yes','Yes, professional driver'].forEach(function (opt) {
+      html += '<option value="' + escAttr(opt) + '"' + (drives === opt ? ' selected' : '') + '>' + escHtml(opt) + '</option>';
+    });
+    html += '</select></div>';
+
+    html += '<div class="ei-field"><div class="ei-sublabel">Heavy Machinery</div>';
+    html += '<select id="ei-heavy-machinery">';
+    ['No','Yes'].forEach(function (opt) {
+      html += '<option value="' + escAttr(opt) + '"' + (heavyMachinery === opt ? ' selected' : '') + '>' + escHtml(opt) + '</option>';
+    });
+    html += '</select></div>';
+
+    html += '<div class="ei-field"><div class="ei-sublabel">Shift Work</div>';
+    html += '<select id="ei-shift-work">';
+    ['No','Yes'].forEach(function (opt) {
+      html += '<option value="' + escAttr(opt) + '"' + (shiftWork === opt ? ' selected' : '') + '>' + escHtml(opt) + '</option>';
+    });
+    html += '</select></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Safety flags (read-only display — psych history + pregnancy stay non-editable)
     var flags = [];
     if (d.psychiatricHistory && d.psychiatricHistory.length > 0) flags.push({l: d.psychiatricHistory.join(', '), t: 'danger'});
     if (d.pregnancyStatus === 'Yes') flags.push({l: 'Pregnant / Breastfeeding', t: 'danger'});
-    if (d.drivesRegularly && d.drivesRegularly !== 'No') flags.push({l: 'Professional Driver', t: 'warning'});
+    if (drives === 'Yes, professional driver') flags.push({l: 'Professional Driver', t: 'warning'});
     if (flags.length > 0) {
       html += '<div class="ei-section"><div class="ei-label">Safety Flags</div>';
       html += '<div class="intake-flags" style="margin:0">';
@@ -1008,9 +1098,21 @@
 
     html += '</div>';
     container.innerHTML = html;
+
+    // Wire radio pill active-class toggling (visual feedback on click)
+    container.querySelectorAll('.ei-radio-row').forEach(function (row) {
+      row.addEventListener('change', function () {
+        row.querySelectorAll('.ei-radio-pill').forEach(function (lbl) {
+          var input = lbl.querySelector('input');
+          lbl.classList.toggle('active', input && input.checked);
+        });
+      });
+    });
   }
 
-  // Collect current values from the editable form
+  // Collect current values from the editable form.
+  // Returns BOTH camelCase keys (for in-memory algorithm reads in recommend.js)
+  // AND the legacy keys recognised by INTAKE_FORM_LEGACY_KEYS in data.js (for save routing).
   function collectEditableIntake() {
     var conditions = [];
     document.querySelectorAll('input[name="ei-condition"]:checked').forEach(function (cb) {
@@ -1022,13 +1124,44 @@
     var medsEl = document.getElementById('ei-medications');
     var allergiesEl = document.getElementById('ei-allergies');
 
+    function getRadio(name) {
+      var el = document.querySelector('input[name="' + name + '"]:checked');
+      return el ? el.value : '';
+    }
+
+    var lineage = getRadio('ei-lineage');
+    var effect = getRadio('ei-effect');
+    var onset = getRadio('ei-onset');
+    var organic = getRadio('ei-organic');
+    var drives = (document.getElementById('ei-drives') || {}).value || 'No';
+    var heavyMachinery = (document.getElementById('ei-heavy-machinery') || {}).value || 'No';
+    var shiftWork = (document.getElementById('ei-shift-work') || {}).value || 'No';
+
     return {
       primaryConditions: conditions,
       experienceLevel: expEl ? expEl.value : '3',
       thcComfort: thcEl ? thcEl.value : '',
       budgetRange: budgetEl ? budgetEl.value : '',
       medications: medsEl ? medsEl.value : '',
-      allergies: allergiesEl ? allergiesEl.value : ''
+      allergies: allergiesEl ? allergiesEl.value : '',
+
+      // camelCase keys — read by recommend.js algorithm in-memory
+      lineagePreference: lineage,
+      effectPreference: effect,
+      onsetPreference: onset,
+      organicPreference: organic,
+      drivesRegularly: drives,
+      heavyMachinery: heavyMachinery === 'Yes',
+      shiftWork: shiftWork === 'Yes',
+
+      // Legacy keys — INTAKE_FORM_LEGACY_KEYS routes these to ClinicalNote fields on save
+      lineage_preference: lineage,
+      effect_preference: effect,
+      Intake_Onset_Preference: onset,
+      Intake_Organic_Preference: organic,
+      Drives_Regularly: drives,
+      Heavy_Machinery: heavyMachinery,
+      Shift_Work: shiftWork
     };
   }
 
