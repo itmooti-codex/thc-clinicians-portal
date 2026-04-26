@@ -8,6 +8,26 @@
   var RE = window.RecommendEngine;
   var data = window.AppData;
 
+  // Patient preference pill — shown next to product names when the open patient
+  // has flagged this product as liked/disliked in their intake (Route A).
+  // Reads window.__currentPatientFeedbackById (Map<itemId, {liked, reason}>).
+  // Returns an empty string when no feedback or wrong patient context.
+  function patientFeedbackPill(itemId) {
+    var map = window.__currentPatientFeedbackById;
+    if (!map || !itemId) return '';
+    var entry = map.get(Number(itemId));
+    if (!entry) return '';
+    var reason = entry.reason ? String(entry.reason).replace(/"/g, '”') : '';
+    var titleAttr = reason ? ' title="Patient note: ' + reason + '"' : '';
+    if (entry.liked === true) {
+      return '<span class="patient-pref-pill patient-pref-liked"' + titleAttr + ' style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:#e0f7f7;color:#1a9e9e;border:1px solid #1a9e9e33;margin-left:6px;">✓ Patient liked</span>';
+    }
+    if (entry.liked === false) {
+      return '<span class="patient-pref-pill patient-pref-disliked"' + titleAttr + ' style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:#fee2e2;color:#b91c1c;border:1px solid #b91c1c33;margin-left:6px;">✕ Patient disliked</span>';
+    }
+    return '<span class="patient-pref-pill patient-pref-tried"' + titleAttr + ' style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:#f3f4f6;color:#374151;border:1px solid #37415133;margin-left:6px;">Patient mentioned</span>';
+  }
+
   // ── Cart State ──
   var cart = [];
 
@@ -262,7 +282,7 @@
       html += '<div class="rec-rank">#' + rec.rank + '</div>';
       html += productThumb(rec.item);
       html += '<div class="rec-name-wrap">';
-      html += '<div class="rec-name">' + escHtml(rec.item_name) + '</div>';
+      html += '<div class="rec-name">' + escHtml(rec.item_name) + patientFeedbackPill(rec.id) + '</div>';
       html += '<div class="rec-brand">' + escHtml(rec.brand || '') + '</div>';
       html += '</div>';
       html += '<span class="chip chip-type">' + escHtml(rec.type || '') + '</span>';
@@ -376,7 +396,7 @@
       html += '<div class="product-row' + (isInCart ? ' product-row-selected' : '') + '" data-item-id="' + item.id + '">';
       html += productThumb(item);
       html += '<div class="product-info">';
-      html += '<div class="product-name">' + escHtml(item.item_name || '') + '</div>';
+      html += '<div class="product-name">' + escHtml(item.item_name || '') + patientFeedbackPill(item.id) + '</div>';
       html += '<div class="product-meta">';
       html += '<span>' + escHtml(item.brand || '') + '</span>';
       if (item.type) html += '<span class="chip chip-type chip-sm">' + escHtml(item.type) + '</span>';
@@ -431,7 +451,7 @@
 
       html += productThumb(item);
       html += '<div class="product-info">';
-      html += '<div class="product-name">' + escHtml(item.item_name || '') + '</div>';
+      html += '<div class="product-name">' + escHtml(item.item_name || '') + patientFeedbackPill(item.id) + '</div>';
       html += '<div class="product-meta">';
       html += '<span>' + escHtml(item.brand || '') + '</span>';
       if (item.type) html += '<span class="chip chip-type chip-sm">' + escHtml(item.type) + '</span>';
@@ -960,6 +980,81 @@
 
   function renderEditableIntake(container, intakeData) {
     var d = intakeData || {};
+
+    // ── Empty state: no Intake Form ClinicalNote on file ──
+    // Patient must complete intake before consultation can proceed. Show
+    // copy-link + send-invite controls instead of the editable form.
+    if (!d.hasIntakeForm) {
+      var uniqueId = d.uniqueId || '';
+      var portalBase = (window.AppConfig && window.AppConfig.PATIENT_PORTAL_URL) || 'https://my.thehappy.clinic';
+      var intakeUrl = uniqueId ? portalBase + '/intake?uid=' + encodeURIComponent(uniqueId) : '';
+      var sendChecked = !!d.sendIntakeForm;
+      var patientFirstName = d.firstName || '';
+
+      var emptyHtml = '<div class="editable-intake"><div class="intake-empty-state">';
+      emptyHtml += '<div class="intake-empty-icon">';
+      emptyHtml += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>';
+      emptyHtml += '</div>';
+      emptyHtml += '<div class="intake-empty-title">No intake form on file</div>';
+      emptyHtml += '<div class="intake-empty-body">An intake form must be completed before this consultation can proceed. The link below pre-fills with details we already have' + (patientFirstName ? ' for ' + escHtml(patientFirstName) : '') + ' so the patient only needs to confirm or update.</div>';
+
+      if (intakeUrl) {
+        emptyHtml += '<div class="intake-empty-actions">';
+        emptyHtml += '<div class="intake-link-group">';
+        emptyHtml += '<input type="text" class="intake-link-input" id="intake-link-url" readonly value="' + escAttr(intakeUrl) + '">';
+        emptyHtml += '<button type="button" class="btn btn-primary" id="btn-copy-intake-link">';
+        emptyHtml += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        emptyHtml += ' Copy Link</button>';
+        emptyHtml += '</div>';
+
+        // Send-to-patient checkbox — toggles Ontraport boolean field f3480 on Contact
+        emptyHtml += '<label class="intake-send-toggle">';
+        emptyHtml += '<input type="checkbox" id="intake-send-checkbox"' + (sendChecked ? ' checked' : '') + '>';
+        emptyHtml += '<span class="intake-send-toggle-text">';
+        emptyHtml += '<strong>Email/SMS this link to patient</strong>';
+        emptyHtml += '<span class="intake-send-toggle-hint">Tick to flag this contact in Ontraport — automated rule sends the link via email + SMS.</span>';
+        emptyHtml += '</span>';
+        emptyHtml += '</label>';
+        emptyHtml += '</div>';
+      } else {
+        emptyHtml += '<div class="intake-empty-warning">Patient record is missing a unique ID — unable to generate intake link.</div>';
+      }
+
+      emptyHtml += '</div></div>';
+      container.innerHTML = emptyHtml;
+
+      // Wire copy button
+      var copyBtn = container.querySelector('#btn-copy-intake-link');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function () {
+          var input = container.querySelector('#intake-link-url');
+          if (!input) return;
+          var done = function () {
+            var original = copyBtn.innerHTML;
+            copyBtn.textContent = '✓ Copied';
+            setTimeout(function () { copyBtn.innerHTML = original; }, 2000);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(input.value).then(done).catch(function () {
+              input.select(); try { document.execCommand('copy'); done(); } catch (e) { /* ignore */ }
+            });
+          } else {
+            input.select(); try { document.execCommand('copy'); done(); } catch (e) { /* ignore */ }
+          }
+        });
+      }
+
+      // Wire checkbox — fires custom event 'intake-send-toggle' that app.js handles
+      var sendCb = container.querySelector('#intake-send-checkbox');
+      if (sendCb) {
+        sendCb.addEventListener('change', function () {
+          var evt = new CustomEvent('intake-send-toggle', { detail: { checked: sendCb.checked }, bubbles: true });
+          container.dispatchEvent(evt);
+        });
+      }
+      return;
+    }
+
     var html = '<div class="editable-intake">';
 
     // Conditions (checkbox grid)

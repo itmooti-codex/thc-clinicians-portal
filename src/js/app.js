@@ -718,6 +718,9 @@
     document.addEventListener('change', function (e) {
       var inEditable = e.target.closest('#workspace-editable-intake');
       if (!inEditable || !currentPatientId) return;
+      // The "Email/SMS this link to patient" checkbox in the empty state has
+      // its own handler (saveSendIntakeFlag); skip the regular intake save.
+      if (e.target.id === 'intake-send-checkbox') return;
       clearTimeout(intakeSaveTimeout);
       intakeSaveTimeout = setTimeout(function () { saveEditableIntake(); }, 800);
     });
@@ -728,6 +731,14 @@
         intakeSaveTimeout = setTimeout(function () { saveEditableIntake(); }, 300);
       }
     }, true);
+
+    // Empty-state "Email/SMS link to patient" checkbox — toggles f3480 on Contact.
+    // Custom event dispatched from prescribe.renderEditableIntake() empty branch.
+    document.addEventListener('intake-send-toggle', function (e) {
+      if (!currentPatientId) return;
+      var checked = !!(e.detail && e.detail.checked);
+      saveSendIntakeFlag(checked);
+    });
 
     // Auto-score when Prescribe section opens
     var prescribeDetails = u.byId('workspace-prescribe-section');
@@ -1683,6 +1694,7 @@
 
     currentPatientId = patientId;
     currentPatientIntake = null;
+    rebuildPatientFeedbackMap();
     currentRecommendations = null;
     if (prescribe) prescribe.clearCart();
     resetPrescribeFilters();
@@ -3125,6 +3137,7 @@
     currentPatientId = patientId;
     workspaceNoteId = null;
     currentPatientIntake = null;
+    rebuildPatientFeedbackMap();
     currentRecommendations = null;
     if (prescribe) prescribe.clearCart();
     // If there are pending prescribe items from the appointment picker, add them after clearing cart
@@ -3222,6 +3235,7 @@
 
       // Render editable intake (above prescribe)
       currentPatientIntake = mapContactToIntake(intakeRaw);
+      rebuildPatientFeedbackMap();
       // Set primary conditions for script creation default
       window._currentPatientConditions = (currentPatientIntake.primaryConditions || []).join(', ');
       var editableIntakeEl = u.byId('workspace-editable-intake');
@@ -3651,6 +3665,43 @@
         statusEl.textContent = 'Save failed';
         statusEl.className = 'intake-rescore-status failed';
       }
+    });
+  }
+
+  // Toggle the "Send intake form to patient" Ontraport flag (Contact field f3480).
+  // When set to true, an Ontraport rule fires that emails/SMS the intake link.
+  function saveSendIntakeFlag(checked) {
+    if (!currentPatientId) return;
+    var statusEl = u.byId('workspace-intake-status');
+    if (statusEl) {
+      statusEl.textContent = checked ? 'Flagging contact for intake invite…' : 'Removing intake flag…';
+      statusEl.className = 'intake-rescore-status saving';
+    }
+    // Save to Contact (f3480 is on the Contact object). updatePatientContact bypasses
+    // the ClinicalNote routing and writes directly to the Contact record.
+    var payload = {};
+    payload['f3480'] = checked ? '1' : '0';
+    data.updatePatientContact(currentPatientId, payload).then(function () {
+      if (currentPatientIntake) currentPatientIntake.sendIntakeForm = checked;
+      if (statusEl) {
+        statusEl.textContent = checked ? '✓ Intake invite queued' : '✓ Intake flag cleared';
+        statusEl.className = 'intake-rescore-status updated';
+        setTimeout(function () {
+          if (statusEl) { statusEl.textContent = ''; statusEl.className = 'intake-rescore-status'; }
+        }, 5000);
+      }
+      if (checked) {
+        u.showToast('Patient flagged for intake invite — Ontraport will email + SMS the link', 'success');
+      }
+    }).catch(function (err) {
+      console.error('Failed to update send_intake_form flag:', err);
+      if (statusEl) {
+        statusEl.textContent = 'Failed to update';
+        statusEl.className = 'intake-rescore-status failed';
+      }
+      // Revert checkbox state on failure
+      var cb = u.byId('intake-send-checkbox');
+      if (cb) cb.checked = !checked;
     });
   }
 
@@ -4363,6 +4414,7 @@
     currentAppointmentType = null;
     currentPatientId = null;
     currentPatientIntake = null;
+    rebuildPatientFeedbackMap();
     currentRecommendations = null;
     if (prescribe && prescribe.clearCart) prescribe.clearCart();
     showView('appointments');
@@ -4407,7 +4459,19 @@
     add('Current medications', intake.medications);
     add('Why regular medicine isn\u2019t working', intake.whyRegularMedicineIsntWorking);
     add('Cannabis experience', intake.experienceLevel || intake.experience_level);
-    add('Prior product feedback', intake.priorProductFeedback);
+    // Prior product feedback — when stored as Route A JSON, format each entry
+    // on its own line (paste-friendly) instead of dumping raw JSON.
+    var priorList = intake.priorProductFeedbackList || [];
+    if (priorList.length) {
+      var lines = priorList.map(function (e) {
+        var verdict = e.liked === true ? 'liked' : e.liked === false ? 'disliked' : 'mentioned';
+        var reason = e.reason ? ' — ' + e.reason : '';
+        return '  • ' + e.name + ' (' + verdict + ')' + reason;
+      });
+      out.push('Prior product feedback:\n' + lines.join('\n'));
+    } else {
+      add('Prior product feedback', intake.priorProductFeedback);
+    }
     add('Drives regularly', intake.drivesRegularly);
     add('Heavy machinery', intake.heavyMachinery);
     add('Competitive sport', intake.competitiveSport);
@@ -4614,6 +4678,13 @@
       breastfeeding: bool(f.pregnant) ? 'Yes' : 'No',
       drivesRegularly: bool(f.drives) ? 'Yes, professional driver' : 'No',
 
+      // ── Intake form metadata (used for empty-state detection) ──
+      hasIntakeForm: !!d.__hasIntakeForm,
+      intakeFormId: d.__intakeFormId || null,
+      intakeCompletedAt: d.__intakeCompletedAt || null,
+      uniqueId: d.unique_id || '',
+      sendIntakeForm: d.send_intake_form === '1' || d.send_intake_form === 1 || d.send_intake_form === true,
+
       // ── Demographics (GraphQL returns string labels directly) ──
       firstName: d.first_name || '',
       lastName: d.last_name || '',
@@ -4668,7 +4739,11 @@
       longTermCondition: d.long_term_condition || '',
 
       // ── Prior Product Feedback ──
+      // String form kept for the 3.5 intake plain-text (paste into Best
+      // Practice). priorProductFeedbackList is the structured form for the
+      // doctor pills + filters (Route A — JSON-in-text storage).
       priorProductFeedback: String(d.prior_product_feedback || d.last_feedback_rating || ''),
+      priorProductFeedbackList: parsePriorProductFeedback(d.prior_product_feedback || ''),
 
       // ── Consent & Notes ──
       consent: bool(f.consent),
@@ -4688,6 +4763,48 @@
     if (Array.isArray(val)) return val;
     if (typeof val === 'string' && val.trim()) return val.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     return [];
+  }
+
+  // Parse the patient-side Prior Product Feedback field. Two formats:
+  //  - New (Route A): JSON array `[{itemId, name, liked, reason}, ...]`
+  //  - Legacy: comma-separated names ("Cannatrek T25, X Oil") with no like/dislike
+  // Returns an array of {itemId, name, liked, reason}. Errors silently → [].
+  function parsePriorProductFeedback(value) {
+    if (!value) return [];
+    var trimmed = String(value).trim();
+    if (!trimmed) return [];
+    if (trimmed.charAt(0) === '[') {
+      try {
+        var parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(function (e) { return e && typeof e === 'object'; }).map(function (e) {
+            return {
+              itemId: Number(e.itemId) || 0,
+              name: String(e.name || '').trim(),
+              liked: e.liked === true ? true : e.liked === false ? false : null,
+              reason: String(e.reason || ''),
+            };
+          }).filter(function (e) { return e.name; });
+        }
+      } catch (err) { /* fall through to legacy parse */ }
+    }
+    var firstLine = trimmed.split('\n')[0];
+    return firstLine.split(',').map(function (s) { return s.trim(); }).filter(Boolean).map(function (name) {
+      return { itemId: 0, name: name, liked: null, reason: '' };
+    });
+  }
+
+  // Global Map of itemId → {liked, reason, name} for the currently-open patient.
+  // Updated each time `currentPatientIntake` is set. Read by prescribe.js to
+  // append "Patient liked" / "Patient disliked" pills to product cards, and by
+  // the filter logic to narrow results to liked/disliked sets.
+  function rebuildPatientFeedbackMap() {
+    var map = new Map();
+    var list = (currentPatientIntake && currentPatientIntake.priorProductFeedbackList) || [];
+    list.forEach(function (e) {
+      if (e.itemId) map.set(e.itemId, e);
+    });
+    window.__currentPatientFeedbackById = map;
   }
 
   /**
@@ -4903,6 +5020,7 @@
     var lineages = getActiveFilterValues('lineage');
     var subTypes = getActiveFilterValues('subtype');
     var terpenes = getActiveFilterValues('terpene'); // 4.4 — BCP, Myrcene, Limonene, Linalool, Pinene
+    var patientPrefs = getActiveFilterValues('patient-pref'); // Route A — 'liked' / 'disliked'
 
     var priceMinEl = u.byId('filter-price-min');
     var priceMaxEl = u.byId('filter-price-max');
@@ -4943,6 +5061,20 @@
       // Sub type filter (OR within group)
       if (subTypes.length > 0) {
         if (subTypes.indexOf(item.sub_type || '') === -1) return false;
+      }
+
+      // Patient preference filter (OR within group) — narrows results to items
+      // the open patient flagged as liked / disliked at intake. Empty/no-match
+      // when there's no current patient or no recorded feedback for this item.
+      if (patientPrefs.length > 0) {
+        var fbMap = window.__currentPatientFeedbackById;
+        var fb = fbMap ? fbMap.get(item.id) : null;
+        if (!fb) return false;
+        var matchesPref = (
+          (patientPrefs.indexOf('liked') !== -1 && fb.liked === true) ||
+          (patientPrefs.indexOf('disliked') !== -1 && fb.liked === false)
+        );
+        if (!matchesPref) return false;
       }
 
       // Terpene filter (OR within group) — item must have ≥0.3% of any selected

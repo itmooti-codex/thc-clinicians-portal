@@ -282,63 +282,459 @@
   }
 
   /**
-   * Fetch patient intake data via GraphQL.
-   * Returns contact object with friendly field names.
+   * Fetch a single item by id without any status filter. Used as a fallback
+   * for openItemDetailPage when the item isn't in the in-memory cache —
+   * specifically for archived / unavailable items, which fetchEnrichedItems
+   * filters out (status: "In Stock" only). Returns the item or null.
    */
+  function fetchItemById(itemId) {
+    var q = 'query getItem($id: IntScalar!) { getItems(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { ' + ENRICHED_ITEM_FIELDS + ' } }';
+    return fetchGraphQL(q, { id: Number(itemId) }).then(function (data) {
+      var list = data && data.getItems;
+      var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
+      return arr[0] || null;
+    });
+  }
+
+  /**
+   * Fetch patient intake data via GraphQL.
+   *
+   * After the Intake Form migration, ~75 consult-related fields moved off
+   * Contact onto a ClinicalNote (with Note_Type='Intake Form'). This function:
+   *   1) Fetches identity + Medicare + consent fields from Contact (stay-fields)
+   *   2) Fetches the most recent Intake Form ClinicalNote for that patient
+   *   3) Merges them into a single flat object keyed by the LEGACY Contact
+   *      field names (e.g. `adhd`, `Severity`, `flowers`) so downstream code
+   *      (prescribe.js, recommend.js, app.js) continues to read the same
+   *      shape without changes.
+   *
+   * Returns a contact-shaped object. The merge prefers Intake Form values for
+   * migrated fields; Contact fields are still used for identity / Medicare /
+   * consent / status.
+   */
+
+  // Contact fields that stay on Contact post-migration.
   var INTAKE_QUERY_FIELDS = [
     // Demographics
-    'id', 'first_name', 'last_name', 'email', 'sms_number', 'birthday', 'age',
+    'id', 'unique_id', 'first_name', 'last_name', 'email', 'sms_number', 'birthday', 'age',
     'sex', 'Weight', 'address', 'address_2', 'city', 'state_au', 'zip_code',
-    // Conditions (booleans)
-    'chronic_non_cancer_pain', 'anxiety_disorder', 'depression', 'ptsd', 'adhd',
-    'sleep_disorder', 'epilepsy', 'fibromyalgia', 'arthritis', 'migraines',
-    'chemotherapy_induced_nausea_and_vomiting', 'endometriosis',
-    'crohns_ulcerative_colitis_ibs_gut', 'multiple_sclerosis', 'inflammation',
-    'neuropathic_pain', 'cancer', 'parkinson_s_disease', 'loss_of_appetite',
-    'autism_spectrum_disorder', 'glaucoma', 'chronic_illness', 'palliative_care',
-    'headaches', 'other_condition', 'condition_details',
-    // Safety / Eligibility
-    'i_am_currently_pregnant_or_breastfeeding',
-    'i_have_a_history_of_schizophrenia_bipolar_and_or_psychosis',
-    'history_of_opioid_replacement_therapy_and_or_drug_dependency',
-    'i_have_an_allergy_to_cannabinoids', 'i_suffer_from_chronic_liver_disease',
-    // Clinical
-    'Severity', 'Experience_Level', 'allergies_information',
-    'list_your_medications_supplements', 'are_you_currently_taking_any_medications_or_supplements',
-    'mental_health_history', 'previous_treatment', 'treatment_outcome', 'long_term_condition',
-    // Medicare
+    // Medicare / IHI
     'medicare_name', 'medicare_number', 'issue_number', 'irn', 'ihi_number',
     'concession_card_holder',
-    // Lifestyle
-    'Drives_Regularly', 'Heavy_Machinery', 'Competitive_Sport', 'Sport_Type',
-    'Shift_Work', 'pregnancy_or_fertility',
-    // Product Preferences
-    'product_preference', 'effect_preference', 'lineage_preference',
-    'Budget_Range', 'budget_important', 'discretion_important',
-    'flowers', 'oils', 'vapes', 'edibles', 'prev_cannabis_use',
-    // Consent
+    // Consent / status
     'terms_conditions', 'declaration_i_have_answered_truthfully',
     'application_status', 'time_signed_terms',
     // Other
-    'contact_comment', 'last_feedback_rating'
+    'contact_comment', 'last_feedback_rating',
+    'Outreach_Notes',
+    // Intake invite tracking
+    'send_intake_form'
   ].join(' ');
+
+  // Latest Intake Form ClinicalNote — fields to fetch (PascalCase column names
+  // from the new schema). Mapped to legacy Contact field names by
+  // `mapIntakeFormToContactShape` below.
+  //
+  // The condition booleans (`Has_X`) are being phased out in favour of a single
+  // `TGA_Indications` multi-select field aligned with the TGA's 31 official
+  // cannabis-prescribing indications. We read both for now (TGA_Indications
+  // takes precedence; booleans are fallback for pre-TGA-migration records).
+  var INTAKE_FORM_QUERY_FIELDS = [
+    'id', 'date_created', 'Note_Type', 'Intake_Completed_At', 'Intake_Form_Version',
+    // TGA Indications (canonical multi-select; replaced the 27 condition booleans)
+    'TGA_Indications_options_as_text',
+    // Primary/secondary conditions (still used for severity + duration)
+    'Primary_Condition', 'Primary_Condition_Severity', 'Primary_Condition_Duration',
+    'Secondary_Condition', 'Secondary_Condition_Severity', 'Secondary_Condition_Duration',
+    'Condition_Details', 'Allergies_Information',
+    // Eligibility screening
+    'I_have_an_allergy_to_cannabinoids', 'I_suffer_from_chronic_liver_disease',
+    'I_am_currently_pregnant_or_breastfeeding',
+    'I_have_a_history_of_suicidal_ideations_or_self_harm',
+    'I_have_a_history_of_schizophrenia_bipolar_or_psychosis',
+    'History_of_opioid_replacement_or_drug_dependency',
+    'None_of_these_apply_to_me_intake',
+    'Pregnancy_or_fertility_status',
+    'Previous_treatment_intake', 'Treatment_outcome_intake',
+    'Long_term_condition_intake', 'Mental_health_history_intake',
+    // Mental health & PHQ-2
+    'PHQ_2_Q1', 'PHQ_2_Q2', 'PHQ_2_Total_Score',
+    'Psychiatric_History', 'Family_Psychiatric_History', 'Substance_Use',
+    'Tobacco_Frequency', 'Alcohol_Units_Per_Week',
+    'Current_Anxiety_or_Depression_Treatment',
+    // Cannabis history
+    'Has_Used_Cannabis_Before', 'Cannabis_History',
+    'Cannabis_Experience_Level', 'Prior_Product_Feedback_intake',
+    // Product preferences
+    'Onset_Preference_intake', 'Flower_Preference_intake',
+    'Lineage_Preference_intake', 'Organic_Preference_intake',
+    'Effect_Preference_intake', 'Product_Preference_intake',
+    'Prefers_Oils', 'Prefers_Vapes', 'Prefers_Edibles', 'Prefers_Flowers',
+    'THC_Comfort_Level', 'Budget_Range_intake', 'Discretion_Important',
+    // Lifestyle & safety
+    'Shift_Work_intake', 'Heavy_Machinery_intake',
+    'Drives_Regularly_intake', 'Competitive_Sport_intake',
+    'Sport_Type_intake',
+    // Current medications
+    'What_Is_Working_For_You', 'List_Your_Medications_Supplements',
+    'Why_Regular_Medicine_Isnt_Working', 'Currently_Taking_Medications',
+    // Other clinic
+    'Using_Other_Clinic', 'Alternative_Clinic_Email'
+  ].join(' ');
+
+  // TGA Indication option-id → label (Ontraport stores list-field values as
+  // option IDs in `*/*<id>*/*<id>*/*` format; this map decodes them).
+  // Keep in sync with the TGA Indications field options in Ontraport.
+  var TGA_OPTION_ID_TO_LABEL = {
+    '938': 'Wasting and anorexia', '939': 'Spasticity-associated Pain',
+    '940': 'Spasticity', '941': 'Sleep Disorder', '942': 'Seizure Management',
+    '943': 'Post-Traumatic Stress Disorder (PTSD)', '944': "Parkinson's Disease",
+    '945': 'Palliative Care', '946': 'Osteoarthritis', '947': 'Neuropathic Pain',
+    '948': 'Multiple Sclerosis', '949': 'Mood Disorder',
+    '950': 'Irritable Bowel Syndrome (IBS)', '951': 'Insomnia',
+    '952': 'Inflammatory Bowel Disease (IBD)',
+    '953': 'Fibromyalgia and Arthropathic Pain', '954': 'Epilepsy',
+    '955': 'Endometriosis', '956': 'Depression', '957': 'Dementia',
+    "958": "Crohn's Disease", '959': 'Chronic non-cancer pain',
+    '960': 'Chemotherapy-Induced Nausea and Vomiting (CINV)',
+    '961': 'Cancer-related pain', '962': 'Cancer symptom management',
+    '963': 'Cachexia', '964': 'Autism Spectrum Disorder (ASD)',
+    '965': 'Attention Deficit Disorder with Hyperactivity (ADHD)',
+    '966': 'Anxiety', '967': 'Anorexia', "968": "Alzheimer's Disease"
+  };
+
+  // TGA indication label → list of legacy Contact-style condition field names.
+  // Used to translate the TGA multi-select back to the snake_case shape that
+  // existing prescribe.js / recommend.js / mapContactToIntake expects.
+  var TGA_LABEL_TO_LEGACY_FIELDS = {
+    'Anxiety': ['anxiety_disorder'],
+    'Depression': ['depression'],
+    'Post-Traumatic Stress Disorder (PTSD)': ['ptsd'],
+    'Attention Deficit Disorder with Hyperactivity (ADHD)': ['adhd'],
+    'Sleep Disorder': ['sleep_disorder'],
+    'Insomnia': ['sleep_disorder'],
+    'Epilepsy': ['epilepsy'],
+    'Seizure Management': ['epilepsy'],
+    'Fibromyalgia and Arthropathic Pain': ['fibromyalgia', 'arthritis'],
+    'Osteoarthritis': ['arthritis'],
+    'Neuropathic Pain': ['neuropathic_pain'],
+    'Chemotherapy-Induced Nausea and Vomiting (CINV)': ['chemotherapy_induced_nausea_and_vomiting'],
+    'Endometriosis': ['endometriosis'],
+    "Crohn's Disease": ['crohns_ulcerative_colitis_ibs_gut'],
+    'Irritable Bowel Syndrome (IBS)': ['crohns_ulcerative_colitis_ibs_gut'],
+    'Inflammatory Bowel Disease (IBD)': ['crohns_ulcerative_colitis_ibs_gut'],
+    'Multiple Sclerosis': ['multiple_sclerosis'],
+    'Spasticity': ['multiple_sclerosis'],
+    'Spasticity-associated Pain': ['multiple_sclerosis'],
+    'Cancer symptom management': ['cancer'],
+    'Cancer-related pain': ['cancer'],
+    "Parkinson's Disease": ['parkinson_s_disease'],
+    'Autism Spectrum Disorder (ASD)': ['autism_spectrum_disorder'],
+    'Palliative Care': ['palliative_care'],
+    'Chronic non-cancer pain': ['chronic_non_cancer_pain'],
+    'Anorexia': ['loss_of_appetite'],
+    'Cachexia': ['loss_of_appetite'],
+    'Wasting and anorexia': ['loss_of_appetite']
+  };
+
+  // Parse the Ontraport list-field encoding (slash-asterisk-slash delimited
+  // option ids) into an array of TGA indication labels.
+  function parseTgaIndications(raw) {
+    if (!raw || typeof raw !== 'string') return [];
+    return raw.split('*/*').filter(Boolean).map(function (id) {
+      return TGA_OPTION_ID_TO_LABEL[id] || null;
+    }).filter(Boolean);
+  }
+
+  /**
+   * Convert an Intake Form ClinicalNote record into the legacy Contact field
+   * shape so downstream code can read `contact.adhd`, `contact.Severity`, etc.
+   * unchanged.
+   */
+  function mapIntakeFormToContactShape(note) {
+    if (!note) return {};
+    var out = {};
+
+    // ── Conditions: derive legacy snake_case condition flags ──
+    // Prefer the TGA Indications multi-select (canonical post-migration).
+    // Fall back to the Has_X booleans for older records that haven't been
+    // migrated yet. Both produce the same snake_case keys downstream code reads.
+    var legacyFromTga = {};
+    var tgaLabels = parseTgaIndications(note.TGA_Indications_options_as_text);
+    tgaLabels.forEach(function (label) {
+      var legacy = TGA_LABEL_TO_LEGACY_FIELDS[label] || [];
+      legacy.forEach(function (key) { legacyFromTga[key] = 1; });
+    });
+
+    Object.assign(out, legacyFromTga);
+    out.__tgaIndications = tgaLabels; // expose for any TGA-aware UI
+
+    // Severity — primary_condition_severity is the new authoritative one;
+    // the legacy `Severity` field on Contact was a single integer.
+    if (note.Primary_Condition_Severity != null) {
+      out.Severity = note.Primary_Condition_Severity;
+    }
+    if (note.Cannabis_Experience_Level != null) {
+      out.Experience_Level = note.Cannabis_Experience_Level;
+    }
+
+    if (note.Condition_Details) out.condition_details = note.Condition_Details;
+    if (note.Allergies_Information) out.allergies_information = note.Allergies_Information;
+    if (note.Pregnancy_or_fertility_status) out.pregnancy_or_fertility = note.Pregnancy_or_fertility_status;
+    if (note.Previous_treatment_intake) out.previous_treatment = note.Previous_treatment_intake;
+    if (note.Treatment_outcome_intake) out.treatment_outcome = note.Treatment_outcome_intake;
+    if (note.Long_term_condition_intake) out.long_term_condition = note.Long_term_condition_intake;
+    if (note.Mental_health_history_intake) out.mental_health_history = note.Mental_health_history_intake;
+
+    // Eligibility / hard-exclusion booleans
+    if (note.I_have_an_allergy_to_cannabinoids != null) out.i_have_an_allergy_to_cannabinoids = note.I_have_an_allergy_to_cannabinoids;
+    if (note.I_suffer_from_chronic_liver_disease != null) out.i_suffer_from_chronic_liver_disease = note.I_suffer_from_chronic_liver_disease;
+    if (note.I_am_currently_pregnant_or_breastfeeding != null) out.i_am_currently_pregnant_or_breastfeeding = note.I_am_currently_pregnant_or_breastfeeding;
+    if (note.I_have_a_history_of_schizophrenia_bipolar_or_psychosis != null) out.i_have_a_history_of_schizophrenia_bipolar_and_or_psychosis = note.I_have_a_history_of_schizophrenia_bipolar_or_psychosis;
+    if (note.History_of_opioid_replacement_or_drug_dependency != null) out.history_of_opioid_replacement_therapy_and_or_drug_dependency = note.History_of_opioid_replacement_or_drug_dependency;
+
+    // Lifestyle & safety
+    if (note.Drives_Regularly_intake != null) out.Drives_Regularly = note.Drives_Regularly_intake;
+    if (note.Heavy_Machinery_intake != null) out.Heavy_Machinery = note.Heavy_Machinery_intake;
+    if (note.Competitive_Sport_intake != null) out.Competitive_Sport = note.Competitive_Sport_intake;
+    if (note.Sport_Type_intake) out.Sport_Type = note.Sport_Type_intake;
+    if (note.Shift_Work_intake != null) out.Shift_Work = note.Shift_Work_intake;
+
+    // Product preferences
+    if (note.Product_Preference_intake) out.product_preference = note.Product_Preference_intake;
+    if (note.Effect_Preference_intake) out.effect_preference = note.Effect_Preference_intake;
+    if (note.Lineage_Preference_intake) out.lineage_preference = note.Lineage_Preference_intake;
+    if (note.Onset_Preference_intake) out.Intake_Onset_Preference = note.Onset_Preference_intake;
+    if (note.Flower_Preference_intake) out.Intake_Flower_Preference = note.Flower_Preference_intake;
+    if (note.Organic_Preference_intake) out.Intake_Organic_Preference = note.Organic_Preference_intake;
+    if (note.Budget_Range_intake) out.Budget_Range = note.Budget_Range_intake;
+    if (note.Budget_Important != null) out.budget_important = note.Budget_Important;
+    if (note.Discretion_Important != null) out.discretion_important = note.Discretion_Important;
+    if (note.Prefers_Oils != null) out.oils = note.Prefers_Oils;
+    if (note.Prefers_Vapes != null) out.vapes = note.Prefers_Vapes;
+    if (note.Prefers_Edibles != null) out.edibles = note.Prefers_Edibles;
+    if (note.Prefers_Flowers != null) out.flowers = note.Prefers_Flowers;
+    if (note.Has_Used_Cannabis_Before != null) out.prev_cannabis_use = note.Has_Used_Cannabis_Before;
+    if (note.Prior_Product_Feedback_intake) out.Prior_Product_Feedback = note.Prior_Product_Feedback_intake;
+
+    // Current medications
+    if (note.List_Your_Medications_Supplements) out.list_your_medications_supplements = note.List_Your_Medications_Supplements;
+    if (note.Currently_Taking_Medications) out.are_you_currently_taking_any_medications_or_supplements = note.Currently_Taking_Medications;
+
+    // Stash the source intake form id for write-back paths.
+    if (note.id) out.__intakeFormId = note.id;
+
+    return out;
+  }
+
+  /** Fetch the most recent Intake Form ClinicalNote for a patient. */
+  function fetchLatestIntakeForm(patientId) {
+    var q = 'query getLatestIntakeForm($pid: IntScalar!) { getClinicalNotes(' +
+      'query: [' +
+        '{ where:    { _OPERATOR_: eq, Latest_Intake_Form_for_Patient_id: $pid } }, ' +
+        '{ andWhere: { _OPERATOR_: eq, Note_Type: "Intake Form" } }' +
+      '], orderBy: { field: Intake_Completed_At, direction: desc }, limit: 1) { ' +
+      INTAKE_FORM_QUERY_FIELDS + ' } }';
+    return fetchGraphQL(q, { pid: Number(patientId) }).then(function (data) {
+      var list = data && data.getClinicalNotes;
+      var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
+      return arr.length ? arr[0] : null;
+    }).catch(function (err) {
+      console.warn('fetchLatestIntakeForm failed:', err);
+      return null;
+    });
+  }
 
   function fetchPatientIntake(patientId) {
     var q = 'query getContactIntake($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { ' + INTAKE_QUERY_FIELDS + ' } }';
-    return fetchGraphQL(q, { id: Number(patientId) }).then(function (data) {
+    var contactPromise = fetchGraphQL(q, { id: Number(patientId) }).then(function (data) {
       var list = data && data.getContacts;
       var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
       return arr.length ? arr[0] : {};
     });
+    var intakePromise = fetchLatestIntakeForm(patientId);
+    return Promise.all([contactPromise, intakePromise]).then(function (results) {
+      var contact = results[0] || {};
+      var intakeForm = results[1];
+      // Merge: Intake Form values overlay Contact values for any keys that
+      // moved. Identity / Medicare / consent stay from Contact.
+      var mapped = mapIntakeFormToContactShape(intakeForm);
+      Object.keys(mapped).forEach(function (k) {
+        contact[k] = mapped[k];
+      });
+      // Stash whether an Intake Form ClinicalNote exists for this patient,
+      // and when it was last completed. Consumers use this to render the
+      // empty/refresh-required state.
+      contact.__hasIntakeForm = !!(intakeForm && intakeForm.id);
+      contact.__intakeFormId = intakeForm && intakeForm.id || null;
+      contact.__intakeCompletedAt = intakeForm && intakeForm.Intake_Completed_At || null;
+      return contact;
+    });
   }
 
-  // Update patient intake fields on Contact record (objectID 0)
-  function updatePatientIntake(patientId, fields) {
+  /**
+   * Update the patient's identity / consent / status fields on the Contact.
+   * Use for fields that stay on Contact after the migration (name, Medicare,
+   * application_status, Outreach_Notes, etc.).
+   */
+  function updatePatientContact(patientId, fields) {
     var payload = { objectID: 0, id: patientId };
-    for (var key in fields) {
-      payload[key] = fields[key];
-    }
+    for (var key in fields) payload[key] = fields[key];
     return ontraportRequest('PUT', '/objects', payload);
+  }
+
+  /**
+   * Update the latest Intake Form ClinicalNote for a patient.
+   * `fields` should use the NEW PascalCase ClinicalNote field names
+   * (e.g. Has_ADHD, Allergies_Information). Pass `intakeFormId` directly to
+   * skip the lookup if the caller already has it (e.g. from fetchPatientIntake's
+   * __intakeFormId stash).
+   */
+  function updateLatestIntakeForm(patientId, fields, intakeFormId) {
+    var lookup = intakeFormId
+      ? Promise.resolve(intakeFormId)
+      : fetchLatestIntakeForm(patientId).then(function (n) { return n ? n.id : null; });
+    return lookup.then(function (id) {
+      if (!id) {
+        return Promise.reject(new Error('No Intake Form ClinicalNote found for patient ' + patientId));
+      }
+      var payload = { objectID: 10008, id: id };
+      for (var key in fields) payload[key] = fields[key];
+      return ontraportRequest('PUT', '/objects', payload);
+    });
+  }
+
+  /**
+   * Backwards-compatible shim. Translates legacy Contact-style snake_case keys
+   * onto the new Intake Form (ClinicalNote) schema OR the TGA Indications
+   * multi-select. Use the explicit `updatePatientContact` /
+   * `updateLatestIntakeForm` for new code; this shim exists so the existing
+   * prescribe.js condition checkboxes keep working.
+   */
+
+  // Legacy condition keys (snake_case Contact field names) → TGA indication
+  // labels they should populate. Same mapping as the patient intake form's
+  // form-label → TGA mapping, just keyed by the snake_case column name.
+  var LEGACY_CONDITION_TO_TGA_LABELS = {
+    'adhd': ['Attention Deficit Disorder with Hyperactivity (ADHD)'],
+    'ptsd': ['Post-Traumatic Stress Disorder (PTSD)'],
+    'cancer': ['Cancer symptom management', 'Cancer-related pain'],
+    'anxiety_disorder': ['Anxiety'],
+    'epilepsy': ['Epilepsy', 'Seizure Management'],
+    'glaucoma': [],
+    'arthritis': ['Osteoarthritis', 'Fibromyalgia and Arthropathic Pain'],
+    'headaches': ['Neuropathic Pain'],
+    'migraines': ['Neuropathic Pain'],
+    'crohns_ulcerative_colitis_ibs_gut': ["Crohn's Disease", 'Irritable Bowel Syndrome (IBS)', 'Inflammatory Bowel Disease (IBD)'],
+    'depression': ['Depression'],
+    'parkinson_s_disease': ["Parkinson's Disease"],
+    'fibromyalgia': ['Fibromyalgia and Arthropathic Pain'],
+    'inflammation': ['Inflammatory Bowel Disease (IBD)'],
+    'endometriosis': ['Endometriosis'],
+    'sleep_disorder': ['Sleep Disorder', 'Insomnia'],
+    'autism_spectrum_disorder': ['Autism Spectrum Disorder (ASD)'],
+    'chemotherapy_induced_nausea_and_vomiting': ['Chemotherapy-Induced Nausea and Vomiting (CINV)'],
+    'other_condition': [],
+    'palliative_care': ['Palliative Care'],
+    'loss_of_appetite': [],
+    'neuropathic_pain': ['Neuropathic Pain'],
+    'multiple_sclerosis': ['Multiple Sclerosis', 'Spasticity', 'Spasticity-associated Pain'],
+    'chronic_illness': [],
+    'chronic_non_cancer_pain': ['Chronic non-cancer pain']
+  };
+
+  // Non-condition legacy keys → ClinicalNote field names (still single-write,
+  // routed via updateLatestIntakeForm). Keep this map separate from condition
+  // keys so condition writes can be batched into TGA Indications.
+  var INTAKE_FORM_LEGACY_KEYS = {
+    'condition_details': 'Condition_Details',
+    'allergies_information': 'Allergies_Information',
+    'pregnancy_or_fertility': 'Pregnancy_or_fertility_status',
+    'previous_treatment': 'Previous_treatment_intake',
+    'treatment_outcome': 'Treatment_outcome_intake',
+    'long_term_condition': 'Long_term_condition_intake',
+    'mental_health_history': 'Mental_health_history_intake',
+    'i_have_an_allergy_to_cannabinoids': 'I_have_an_allergy_to_cannabinoids',
+    'i_suffer_from_chronic_liver_disease': 'I_suffer_from_chronic_liver_disease',
+    'i_am_currently_pregnant_or_breastfeeding': 'I_am_currently_pregnant_or_breastfeeding',
+    'i_have_a_history_of_schizophrenia_bipolar_and_or_psychosis': 'I_have_a_history_of_schizophrenia_bipolar_or_psychosis',
+    'history_of_opioid_replacement_therapy_and_or_drug_dependency': 'History_of_opioid_replacement_or_drug_dependency',
+    'Severity': 'Primary_Condition_Severity',
+    'Experience_Level': 'Cannabis_Experience_Level',
+    'Drives_Regularly': 'Drives_Regularly_intake',
+    'Heavy_Machinery': 'Heavy_Machinery_intake',
+    'Competitive_Sport': 'Competitive_Sport_intake',
+    'Sport_Type': 'Sport_Type_intake',
+    'Shift_Work': 'Shift_Work_intake',
+    'product_preference': 'Product_Preference_intake',
+    'effect_preference': 'Effect_Preference_intake',
+    'lineage_preference': 'Lineage_Preference_intake',
+    'Intake_Onset_Preference': 'Onset_Preference_intake',
+    'Intake_Flower_Preference': 'Flower_Preference_intake',
+    'Intake_Organic_Preference': 'Organic_Preference_intake',
+    'Budget_Range': 'Budget_Range_intake',
+    'discretion_important': 'Discretion_Important',
+    'oils': 'Prefers_Oils', 'vapes': 'Prefers_Vapes',
+    'edibles': 'Prefers_Edibles', 'flowers': 'Prefers_Flowers',
+    'prev_cannabis_use': 'Has_Used_Cannabis_Before',
+    'Prior_Product_Feedback': 'Prior_Product_Feedback_intake',
+    'list_your_medications_supplements': 'List_Your_Medications_Supplements',
+    'are_you_currently_taking_any_medications_or_supplements': 'Currently_Taking_Medications'
+  };
+
+  // Ontraport field id for TGA Indications (multi-select). Hardcoded for
+  // stability — option ids change if the field is recreated, but the field id
+  // is stable until the field itself is dropped.
+  var TGA_INDICATIONS_FIELD_ID = 'f3478';
+
+  /**
+   * Translate a payload of legacy condition keys into a TGA Indications
+   * multi-select string. Pass labels (not option ids) — Ontraport accepts both
+   * and converts labels to ids server-side.
+   */
+  function buildTgaIndicationsValue(payload) {
+    var labels = {};
+    Object.keys(payload).forEach(function (k) {
+      var v = payload[k];
+      var isOn = (v === '1' || v === 1 || v === true);
+      if (!isOn) return;
+      var tgaLabels = LEGACY_CONDITION_TO_TGA_LABELS[k];
+      if (!tgaLabels) return;
+      tgaLabels.forEach(function (l) { labels[l] = true; });
+    });
+    var arr = Object.keys(labels);
+    return arr.length > 0 ? '*/*' + arr.join('*/*') + '*/*' : null;
+  }
+
+  function updatePatientIntake(patientId, fields) {
+    var contactFields = {};
+    var intakeFields = {};
+    var hasConditionKeys = false;
+
+    Object.keys(fields).forEach(function (k) {
+      if (LEGACY_CONDITION_TO_TGA_LABELS.hasOwnProperty(k)) {
+        // Condition key — handled below via TGA Indications, not as Has_X.
+        hasConditionKeys = true;
+        return;
+      }
+      var newKey = INTAKE_FORM_LEGACY_KEYS[k];
+      if (newKey) intakeFields[newKey] = fields[k];
+      else contactFields[k] = fields[k];
+    });
+
+    if (hasConditionKeys) {
+      // The caller is rewriting the patient's condition set wholesale. Build
+      // the TGA Indications multi-select from whichever condition keys are
+      // present + truthy and overwrite the field.
+      var tgaValue = buildTgaIndicationsValue(fields);
+      // Even an empty result should clear the field — write empty delimiter.
+      intakeFields[TGA_INDICATIONS_FIELD_ID] = tgaValue || '';
+    }
+
+    var promises = [];
+    if (Object.keys(contactFields).length) promises.push(updatePatientContact(patientId, contactFields));
+    if (Object.keys(intakeFields).length) promises.push(updateLatestIntakeForm(patientId, intakeFields));
+    return Promise.all(promises);
   }
 
   // ── Ontraport API ───────────────────────────────────────────
@@ -732,8 +1128,12 @@
     fetchScripts: fetchScripts,
     fetchItems: fetchItems,
     fetchEnrichedItems: fetchEnrichedItems,
+    fetchItemById: fetchItemById,
     fetchPatientIntake: fetchPatientIntake,
+    fetchLatestIntakeForm: fetchLatestIntakeForm,
     updatePatientIntake: updatePatientIntake,
+    updatePatientContact: updatePatientContact,
+    updateLatestIntakeForm: updateLatestIntakeForm,
     createPatient: createPatient,
     createAppointment: createAppointment,
     updateAppointment: updateAppointment,
