@@ -1699,6 +1699,13 @@
     if (prescribe) prescribe.clearCart();
     resetPrescribeFilters();
 
+    // Reset the intake-derived UI to a loading state so stale data from a
+    // previously-opened patient doesn't flash on screen.
+    var bannerEl = u.byId('patient-intake-banner');
+    if (bannerEl) bannerEl.innerHTML = '';
+    var intakeContent = u.byId('patient-intake-content');
+    if (intakeContent) intakeContent.innerHTML = '<div class="empty-state-sm">Loading intake…</div>';
+
     renderPatientHero(patient);
     renderPatientSummary(patientId);
     showView('patient-detail');
@@ -1820,6 +1827,17 @@
     if (preSelectedPatientId) {
       checkPatientCard(preSelectedPatientId);
     }
+
+    // Surface the "no intake → Pending Intake Form" warning at the top of the
+    // modal so the doctor isn't surprised by the appointment status.
+    var intakeWarning = u.byId('appt-intake-warning');
+    if (intakeWarning) {
+      var sameContext = preSelectedPatientId && currentPatientId &&
+        String(preSelectedPatientId) === String(currentPatientId);
+      var noIntake = sameContext && currentPatientIntake && !currentPatientIntake.intakeIsRecent;
+      intakeWarning.classList.toggle('hidden', !noIntake);
+    }
+
     openModal('modal-add-appointment');
   }
 
@@ -2128,19 +2146,282 @@
       var notesHtml = '<strong>' + notes.length + '</strong> total' +
         (lastNoteDate ? '<br><span class="summary-sub">Last: ' + u.formatDate(lastNoteDate) + '</span>' : '');
 
-      // Patient since (earliest appointment)
-      var allTimes = appts.map(function (a) { return a.appointment_time || 0; }).filter(function (t) { return t > 0; });
-      var firstVisit = allTimes.length ? Math.min.apply(null, allTimes) : 0;
-      var sinceHtml = firstVisit ? u.formatDate(firstVisit) : '<span class="summary-sub">No visits yet</span>';
+      // Intake form tile — placeholder shown until loadPrescribeIntake resolves
+      // and renderIntakeFormTile() patches it. Same loading affordance as the
+      // other tiles so the UI doesn't jump.
+      var intakeTileHtml =
+        '<div class="summary-tile" id="summary-tile-intake"><div class="summary-label">Intake Form</div><div class="summary-value"><span class="summary-sub">Loading...</span></div></div>';
 
       container.innerHTML =
         '<div class="summary-tile"><div class="summary-label">Next Appointment</div><div class="summary-value">' + nextApptHtml + '</div></div>' +
         '<div class="summary-tile"><div class="summary-label">Scripts</div><div class="summary-value">' + activeScriptsHtml + '</div></div>' +
         '<div class="summary-tile"><div class="summary-label">Clinical Notes</div><div class="summary-value">' + notesHtml + '</div></div>' +
-        '<div class="summary-tile"><div class="summary-label">Patient Since</div><div class="summary-value">' + sinceHtml + '</div></div>';
+        intakeTileHtml;
+
+      // If intake already loaded for this patient (e.g. fast cache), render now.
+      if (currentPatientIntake) renderIntakeFormTile(currentPatientIntake);
     }).catch(function () {
       container.innerHTML = '';
     });
+  }
+
+  // ── Intake Form: tile, banner, tab ─────────────────────────
+
+  function renderIntakeFormTile(intake) {
+    var tile = u.byId('summary-tile-intake');
+    if (!tile) return;
+    var valueHtml;
+    if (!intake) {
+      valueHtml = '<span class="summary-sub">Loading...</span>';
+    } else if (intake.intakeIsRecent) {
+      var when = intake.intakeCompletedAt ? u.formatDate(intake.intakeCompletedAt) : '';
+      valueHtml = '<span style="color:var(--brand-success,#16a34a)">✓ Completed</span>' +
+        (when ? '<br><span class="summary-sub">' + when + '</span>' : '');
+    } else if (intake.hasIntakeForm) {
+      var lastWhen = intake.intakeCompletedAt ? u.formatDate(intake.intakeCompletedAt) : '';
+      valueHtml = '<span style="color:var(--brand-error,#e53e3e)">Out of date</span>' +
+        (lastWhen ? '<br><span class="summary-sub">Last: ' + lastWhen + '</span>' : '');
+    } else if (intake.sendIntakeForm) {
+      valueHtml = 'Sent<br><span class="summary-sub">awaiting patient</span>';
+    } else {
+      valueHtml = '<span style="color:var(--brand-error,#e53e3e)">Not started</span>' +
+        '<br><span class="summary-sub">See banner above to send link</span>';
+    }
+    tile.innerHTML = '<div class="summary-label">Intake Form</div><div class="summary-value">' + valueHtml + '</div>';
+  }
+
+  /**
+   * Render the intake-state banner above the patient hero. States:
+   *   - intake completed + terms signed → no banner
+   *   - intake missing, not yet sent → red banner with "Send Intake Form" checkbox
+   *   - intake missing, already sent → amber banner ("awaiting completion")
+   *   - intake completed but terms not signed → amber banner with link to tab
+   */
+  function renderIntakeBanner(intake) {
+    var banner = u.byId('patient-intake-banner');
+    if (!banner) return;
+    if (!intake) { banner.innerHTML = ''; return; }
+
+    var hasIntake = !!intake.hasIntakeForm;
+    var isRecent = !!intake.intakeIsRecent;
+    var sent = !!intake.sendIntakeForm;
+    var termsSigned = !!intake.termsConditions;
+    var lastIntakeDate = intake.intakeCompletedAt ? u.formatDate(intake.intakeCompletedAt) : '';
+
+    if (isRecent && termsSigned) { banner.innerHTML = ''; return; }
+
+    var alertSvg = '<svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+
+    var staleHeadline = hasIntake && !isRecent
+      ? '<strong>Intake form is out of date</strong> (last completed ' + lastIntakeDate + '). Intake forms are valid for 6 months — please request an updated one before the next appointment.'
+      : '<strong>This patient has not completed their intake form.</strong> New appointments will be marked <em>Pending Intake Form</em> until they finish it.';
+
+    if (!isRecent && !sent) {
+      banner.innerHTML =
+        '<div class="alert-banner alert-danger" style="align-items:flex-start">' +
+          alertSvg +
+          '<div style="flex:1">' +
+            '<div>' + staleHeadline + '</div>' +
+            '<label class="intake-banner-send-label" style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:500;cursor:pointer">' +
+              '<input type="checkbox" id="intake-banner-send-checkbox" style="margin:0">' +
+              '<span>Send Intake Form to patient (emails &amp; SMS the link)</span>' +
+            '</label>' +
+          '</div>' +
+        '</div>';
+    } else if (!isRecent && sent) {
+      banner.innerHTML =
+        '<div class="alert-banner alert-warning">' +
+          alertSvg +
+          '<span><strong>Intake form sent to patient — awaiting completion.</strong> New appointments will still be created with status <em>Pending Intake Form</em> until intake is submitted.</span>' +
+        '</div>';
+    } else if (isRecent && !termsSigned) {
+      banner.innerHTML =
+        '<div class="alert-banner alert-warning">' +
+          alertSvg +
+          '<span><strong>Patient has not signed the consent terms.</strong> ' +
+          '<a href="#" id="intake-banner-view-link">Open Intake Form tab</a> to review.</span>' +
+        '</div>';
+    }
+
+    var cb = u.byId('intake-banner-send-checkbox');
+    if (cb) {
+      cb.addEventListener('change', function () {
+        var evt = new CustomEvent('intake-send-toggle', { detail: { checked: cb.checked }, bubbles: true });
+        banner.dispatchEvent(evt);
+        // Optimistically re-render the tile + banner so the doctor sees the
+        // "Sent — awaiting" state immediately. saveSendIntakeFlag updates
+        // currentPatientIntake.sendIntakeForm on success; refresh after that.
+        if (currentPatientIntake) {
+          currentPatientIntake.sendIntakeForm = cb.checked;
+          renderIntakeBanner(currentPatientIntake);
+          renderIntakeFormTile(currentPatientIntake);
+        }
+      });
+    }
+    var link = u.byId('intake-banner-view-link');
+    if (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        switchDetailTab('intake');
+      });
+    }
+  }
+
+  /**
+   * Render the Intake Form tab body. When no intake exists, mounts the same
+   * empty-state UI used in the workspace (copy link + send checkbox) by
+   * delegating to prescribe.renderEditableIntake. When intake exists, shows
+   * read-only sections (consent + clinical groups) the doctor can scan.
+   */
+  function renderIntakeTab(intake) {
+    var container = u.byId('patient-intake-content');
+    if (!container) return;
+    if (!intake) {
+      container.innerHTML = '<div class="empty-state-sm">Loading intake…</div>';
+      return;
+    }
+
+    if (!intake.hasIntakeForm) {
+      // Reuse the workspace's empty-state renderer — same copy-link + send
+      // controls, same intake-send-toggle event plumbing.
+      if (prescribe && typeof prescribe.renderEditableIntake === 'function') {
+        prescribe.renderEditableIntake(container, intake);
+      } else {
+        container.innerHTML = '<div class="empty-state-sm">No intake form on file.</div>';
+      }
+      return;
+    }
+
+    container.innerHTML = buildIntakeReadonlyHtml(intake);
+  }
+
+  function buildIntakeReadonlyHtml(d) {
+    var esc = u.escapeHtml;
+    var fmtDate = function (ts) { return ts ? u.formatDate(ts) : '—'; };
+    var yn = function (v) {
+      if (v === true || v === 'Yes' || v === 1 || v === '1') return 'Yes';
+      if (v === false || v === 'No' || v === 0 || v === '0' || v === '') return 'No';
+      return v == null ? '—' : esc(String(v));
+    };
+    var txt = function (v) { return (v == null || v === '') ? '—' : esc(String(v)); };
+
+    function row(label, value) {
+      return '<div class="intake-ro-row"><div class="intake-ro-label">' + esc(label) + '</div><div class="intake-ro-value">' + value + '</div></div>';
+    }
+    function section(title, body, openByDefault) {
+      return '<details class="intake-ro-section"' + (openByDefault ? ' open' : '') + '>' +
+        '<summary class="intake-ro-summary">' + esc(title) + '</summary>' +
+        '<div class="intake-ro-body">' + body + '</div></details>';
+    }
+
+    var html = '<div class="intake-readonly">';
+
+    // Consent & documents (always open — first thing the doctor checks)
+    var signatureBlock = d.signatureUrl
+      ? '<img src="' + esc(d.signatureUrl) + '" alt="Patient signature" style="max-width:240px;max-height:80px;border:1px solid var(--brand-border);border-radius:6px;background:#fff;padding:4px">'
+      : '—';
+    var docLinkBlock = d.documentLink
+      ? '<a href="' + esc(d.documentLink) + '" target="_blank" rel="noopener" class="btn btn-sm btn-secondary" style="text-decoration:none">Download signed document</a>'
+      : '—';
+    var consentBody =
+      row('Terms &amp; conditions accepted', d.termsConditions ? '<span style="color:var(--brand-success,#16a34a);font-weight:600">Yes</span> · signed ' + fmtDate(d.termsSignedAt) : '<span style="color:var(--brand-error,#e53e3e);font-weight:600">Not signed</span>') +
+      row('Truthful declaration', yn(d.consentAccuracy)) +
+      row('Signed document', docLinkBlock) +
+      row('Signature', signatureBlock);
+    html += section('Consent &amp; Documents', consentBody, true);
+
+    // Completion metadata
+    html += section('Intake Submission',
+      row('Submitted', fmtDate(d.intakeCompletedAt)) +
+      row('Application date', fmtDate(d.applicationDate)) +
+      row('Application status', txt(d.applicationStatus)) +
+      row('Source', txt(d.intakeSource)),
+    true);
+
+    // Conditions (TGA-aligned)
+    var tgaList = (d.tgaIndications || []).map(function (l) { return '<span class="intake-ro-chip">' + esc(l) + '</span>'; }).join(' ') || '—';
+    var legacyList = (d.primaryConditions || []).map(function (c) { return esc(c); }).join(', ') || '—';
+    html += section('Conditions',
+      row('TGA indications', tgaList) +
+      row('Legacy condition flags', legacyList) +
+      row('Severity', txt(d.severity)) +
+      row('Condition details', txt(d.conditionDetails)) +
+      row('Allergies', txt(d.allergies)),
+    true);
+
+    // Eligibility screening
+    html += section('Eligibility Screening',
+      row('Allergy to cannabinoids', yn(d.psychiatricHistory && d.psychiatricHistory.length ? 'Flagged' : '')) +
+      row('Pregnancy / breastfeeding', txt(d.pregnancyStatus)) +
+      row('Previous treatment', txt(d.previousTreatment)) +
+      row('Treatment outcome', txt(d.treatmentOutcome)) +
+      row('Long-term condition', txt(d.longTermCondition)),
+    false);
+
+    // Mental Health & PHQ-2
+    html += section('Mental Health &amp; PHQ-2',
+      row('PHQ-2 Q1', txt(d.phq2Q1)) +
+      row('PHQ-2 Q2', txt(d.phq2Q2)) +
+      row('Psychiatric history', (d.psychiatricHistory && d.psychiatricHistory.length) ? d.psychiatricHistory.map(esc).join(', ') : '—') +
+      row('Mental health notes', txt(d.mentalHealthHistory)) +
+      row('Substance use', (d.substanceUse && d.substanceUse.length) ? d.substanceUse.map(esc).join(', ') : '—') +
+      row('Tobacco frequency', txt(d.tobaccoFreq)) +
+      row('Alcohol units / week', txt(d.alcoholUnits)),
+    false);
+
+    // Cannabis history
+    var feedbackList = (d.priorProductFeedbackList || []).map(function (f) {
+      var emoji = f.liked === true ? '👍' : f.liked === false ? '👎' : '·';
+      return '<div>' + emoji + ' ' + esc(f.name || '') + (f.reason ? ' — <em>' + esc(f.reason) + '</em>' : '') + '</div>';
+    }).join('') || '—';
+    html += section('Cannabis History',
+      row('Has used cannabis before', txt(d.prevCannabisUse)) +
+      row('Experience level', txt(d.experienceLevel)) +
+      row('Prior product feedback', feedbackList),
+    false);
+
+    // Product preferences
+    var formsArr = [];
+    if (d.oilPreference === 'Yes') formsArr.push('Oils');
+    if (d.flowerPreference === 'Yes') formsArr.push('Flower');
+    if (d.vapePreference === 'Yes') formsArr.push('Vapes');
+    if (d.ediblePreference === 'Yes') formsArr.push('Edibles');
+    html += section('Product Preferences',
+      row('Preferred forms', formsArr.length ? formsArr.join(', ') : '—') +
+      row('THC comfort', txt(d.thcComfort)) +
+      row('Budget range', txt(d.budgetRange)) +
+      row('Budget important', txt(d.budgetImportant)) +
+      row('Discretion important', txt(d.discretionImportant)) +
+      row('Onset preference', txt(d.onsetPreference)) +
+      row('Effect preference', txt(d.effectPreference)) +
+      row('Lineage preference', txt(d.lineagePreference)) +
+      row('Organic preference', txt(d.organicPreference)),
+    false);
+
+    // Lifestyle & safety
+    html += section('Lifestyle &amp; Safety',
+      row('Drives regularly', txt(d.drivesRegularly)) +
+      row('Heavy machinery', txt(d.heavyMachinery)) +
+      row('Shift work', txt(d.shiftWork)) +
+      row('Competitive sport', txt(d.competitiveSport)) +
+      row('Sport type', txt(d.sportType)),
+    false);
+
+    // Current medications
+    html += section('Current Medications',
+      row('Currently taking', txt(d.medications)) +
+      row('What\'s working', txt(d.previousResponse)),
+    false);
+
+    html += '</div>';
+    return html;
+  }
+
+  /** Refresh the patient view's intake-derived UI (called after intake loads). */
+  function refreshPatientIntakeViews() {
+    renderIntakeFormTile(currentPatientIntake);
+    renderIntakeBanner(currentPatientIntake);
+    renderIntakeTab(currentPatientIntake);
   }
 
   // ── Patient Appointments ───────────────────────────────────
@@ -3342,6 +3623,7 @@
     else if (s === 'script added') cls = 'chip-script-added';
     else if (s === 'cancelled') cls = 'chip-cancelled';
     else if (s === 'reschedule') cls = 'chip-reschedule';
+    else if (s === 'pending intake form') cls = 'chip-pending-intake';
     return '<span class="chip ' + cls + '">' + u.escapeHtml(status) + '</span>';
   }
 
@@ -4502,10 +4784,15 @@
         var hasIntake = prescribe.renderIntakeSummary(summaryEl, currentPatientIntake);
         if (btnGen) btnGen.disabled = !hasIntake;
       }
+      // Update patient-detail view's intake-derived UI (banner, tile, tab).
+      refreshPatientIntakeViews();
     }).catch(function () {
       // If intake fetch fails, show empty state
       if (summaryEl) summaryEl.innerHTML = '<div class="empty-state-sm">Could not load intake data. You can still browse and prescribe manually.</div>';
       if (btnGen) btnGen.disabled = false; // allow manual prescribing
+      // Even on failure, refresh so the tile/banner show the "no data" state
+      // rather than a permanent loading spinner.
+      refreshPatientIntakeViews();
     });
   }
 
@@ -4680,10 +4967,20 @@
 
       // ── Intake form metadata (used for empty-state detection) ──
       hasIntakeForm: !!d.__hasIntakeForm,
+      intakeIsRecent: !!d.__intakeIsRecent,
       intakeFormId: d.__intakeFormId || null,
       intakeCompletedAt: d.__intakeCompletedAt || null,
       uniqueId: d.unique_id || '',
       sendIntakeForm: d.send_intake_form === '1' || d.send_intake_form === 1 || d.send_intake_form === true,
+
+      // ── Consent / document (Contact-side; for the patient-view Intake tab) ──
+      termsConditions: d.terms_conditions === '1' || d.terms_conditions === 1 || d.terms_conditions === true,
+      termsSignedAt: d.time_signed_terms || null,
+      documentLink: d.document_link || '',
+      signatureUrl: d.signature || '',
+      applicationDate: d.application_date || null,
+      applicationStatus: d.application_status || '',
+      intakeSource: d.Intake_Source || '',
 
       // ── Demographics (GraphQL returns string labels directly) ──
       firstName: d.first_name || '',
@@ -5531,11 +5828,22 @@
     var feeInput = u.byId('appt-fee');
     var feeAmount = feeInput ? parseFloat(feeInput.value) : 0;
 
+    // If the patient hasn't completed their intake form yet, the appointment
+    // gets `Pending Intake Form` status. An Ontraport rule (out of scope here)
+    // is responsible for promoting it to `Booked` once intake is submitted.
+    // Use `currentPatientIntake` only when it matches the patient being booked
+    // — booking from the global appointments view may have no patient context.
+    var statusForBooking = 'Booked';
+    if (currentPatientId && String(currentPatientId) === String(patientId) &&
+        currentPatientIntake && !currentPatientIntake.intakeIsRecent) {
+      statusForBooking = 'Pending Intake Form';
+    }
+
     var payload = {
       type: apptType,
       patient_id: patientId,
       appointment_time: apptTime,
-      status: 'Booked',
+      status: statusForBooking,
     };
 
     if (timeslotId) payload.timeslot_id = timeslotId;

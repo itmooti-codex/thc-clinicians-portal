@@ -323,7 +323,8 @@
     'concession_card_holder',
     // Consent / status
     'terms_conditions', 'declaration_i_have_answered_truthfully',
-    'application_status', 'time_signed_terms',
+    'application_status', 'application_date', 'time_signed_terms',
+    'document_link', 'signature', 'Intake_Source',
     // Other
     'contact_comment', 'last_feedback_rating',
     'Outreach_Notes',
@@ -527,11 +528,20 @@
     return out;
   }
 
+  // An intake form is considered "recent" (still clinically valid) for 180 days
+  // after Intake_Completed_At. Older intakes require the patient to refresh
+  // before a new appointment can proceed.
+  var INTAKE_FRESHNESS_SECONDS = 180 * 86400;
+
   /** Fetch the most recent Intake Form ClinicalNote for a patient. */
   function fetchLatestIntakeForm(patientId) {
+    // Filter on the canonical patient_id FK rather than the denormalized
+    // Latest_Intake_Form_for_Patient_id pointer — that pointer is not always
+    // populated, which caused patients with a real intake on file to look
+    // "Not started" in the UI.
     var q = 'query getLatestIntakeForm($pid: IntScalar!) { getClinicalNotes(' +
       'query: [' +
-        '{ where:    { _OPERATOR_: eq, Latest_Intake_Form_for_Patient_id: $pid } }, ' +
+        '{ where:    { _OPERATOR_: eq, patient_id: $pid } }, ' +
         '{ andWhere: { _OPERATOR_: eq, Note_Type: "Intake Form" } }' +
       '], orderBy: { field: Intake_Completed_At, direction: desc }, limit: 1) { ' +
       INTAKE_FORM_QUERY_FIELDS + ' } }';
@@ -568,6 +578,9 @@
       contact.__hasIntakeForm = !!(intakeForm && intakeForm.id);
       contact.__intakeFormId = intakeForm && intakeForm.id || null;
       contact.__intakeCompletedAt = intakeForm && intakeForm.Intake_Completed_At || null;
+      var nowSec = Math.floor(Date.now() / 1000);
+      contact.__intakeIsRecent = !!(contact.__intakeCompletedAt &&
+        (nowSec - Number(contact.__intakeCompletedAt)) < INTAKE_FRESHNESS_SECONDS);
       return contact;
     });
   }
@@ -771,7 +784,7 @@
     immediate: 'f3336',     // checkbox — appointment created from clinician portal
   };
 
-  var APPT_STATUS = { Booked: '138', Paid: '131', Completed: '150', Cancelled: '129', Rescheduled: '197' };
+  var APPT_STATUS = { Booked: '138', Paid: '131', Completed: '150', Cancelled: '129', Rescheduled: '197', 'Pending Intake Form': '970' };
   var APPT_TYPE = { 'Initial Consultation': '237', 'Follow Up Consultation': '236', 'In Patient Consultation': '770' };
 
   // Ontraport field mapping for Scripts (objectID 10002)
