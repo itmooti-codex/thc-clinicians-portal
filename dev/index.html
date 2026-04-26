@@ -158,12 +158,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="15 18 9 12 15 6"/></svg>
           Back to Patient Search
         </button>
+        <div id="patient-intake-banner"></div>
         <div class="patient-hero" id="patient-hero"></div>
         <div class="patient-summary" id="patient-summary"></div>
         <nav class="detail-tab-bar" id="detail-tabs">
           <button class="detail-tab-btn active" data-detail-tab="appointments">Appointments</button>
           <button class="detail-tab-btn" data-detail-tab="notes">Clinical Notes</button>
           <button class="detail-tab-btn" data-detail-tab="scripts">Scripts</button>
+          <button class="detail-tab-btn" data-detail-tab="intake">Intake Form</button>
         </nav>
         <div id="detail-appointments" class="detail-panel">
           <div class="detail-toolbar">
@@ -188,6 +190,11 @@
           <h3 class="detail-heading">Scripts</h3>
           <div id="patient-scripts-list" class="record-list"></div>
           <div id="patient-scripts-empty" class="empty-state-sm hidden">No scripts found</div>
+        </div>
+        <!-- Detail: Intake Form (rendered by renderIntakeTab) -->
+        <div id="detail-intake" class="detail-panel hidden">
+          <h3 class="detail-heading">Intake Form</h3>
+          <div id="patient-intake-content"></div>
         </div>
       </div>
       <!-- ═══ APPOINTMENT WORKSPACE ═══ -->
@@ -383,6 +390,13 @@
                               <button class="filter-pill" data-value="limonene" title="Limonene — mood lift; anti-anxiety">Limonene</button>
                               <button class="filter-pill" data-value="linalool" title="Linalool — calming; sleep">Linalool</button>
                               <button class="filter-pill" data-value="alpha_pinene" title="Pinene — alertness; counters short-term memory loss">Pinene</button>
+                            </div>
+                          </div>
+                          <div class="filter-group" data-filter-group="patient-pref">
+                            <div class="filter-group-label">Patient history <span class="filter-count hidden">0</span></div>
+                            <div class="filter-group-pills">
+                              <button class="filter-pill" data-value="liked" title="Show only products this patient previously liked">✓ Patient liked</button>
+                              <button class="filter-pill" data-value="disliked" title="Show only products this patient previously disliked">✕ Patient disliked</button>
                             </div>
                           </div>
                           <div class="filter-group" data-filter-group="price">

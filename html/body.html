@@ -109,6 +109,9 @@
         Back to Patient Search
       </button>
 
+      <!-- Intake Form state banner (rendered by renderIntakeBanner) -->
+      <div id="patient-intake-banner"></div>
+
       <!-- Patient Hero Card -->
       <div class="patient-hero" id="patient-hero"></div>
       <div class="patient-summary" id="patient-summary"></div>
@@ -118,6 +121,7 @@
         <button class="detail-tab-btn active" data-detail-tab="appointments">Appointments</button>
         <button class="detail-tab-btn" data-detail-tab="notes">Clinical Notes</button>
         <button class="detail-tab-btn" data-detail-tab="scripts">Scripts</button>
+        <button class="detail-tab-btn" data-detail-tab="intake">Intake Form</button>
       </nav>
 
       <!-- Detail: Appointments -->
@@ -148,6 +152,12 @@
         <h3 class="detail-heading">Scripts</h3>
         <div id="patient-scripts-list" class="record-list"></div>
         <div id="patient-scripts-empty" class="empty-state-sm hidden">No scripts found</div>
+      </div>
+
+      <!-- Detail: Intake Form (rendered by renderIntakeTab) -->
+      <div id="detail-intake" class="detail-panel hidden">
+        <h3 class="detail-heading">Intake Form</h3>
+        <div id="patient-intake-content"></div>
       </div>
 
     </div>
@@ -197,6 +207,7 @@
             <div class="workspace-section-title">Clinical Note</div>
             <div style="display:flex;gap:8px;align-items:center;">
               <button class="btn btn-sm btn-primary" id="btn-generate-clinical-note">Draft Note</button>
+              <button class="btn btn-sm btn-ghost" id="btn-copy-external-note" title="Copy for external medical centre system (Best Practice / Medical Director)">Copy for external</button>
               <span class="note-status-badge" id="workspace-note-status"></span>
             </div>
           </div>
@@ -306,6 +317,16 @@
                             <button class="filter-pill" data-value="Budget"><span class="pill-icon">&#128176;</span> Budget</button>
                             <button class="filter-pill" data-value="Core"><span class="pill-icon">&#11088;</span> Core</button>
                             <button class="filter-pill" data-value="Craft"><span class="pill-icon">&#10024;</span> Craft</button>
+                          </div>
+                        </div>
+                        <div class="filter-group" data-filter-group="terpene">
+                          <div class="filter-group-label">Terpene-rich <span class="filter-count hidden">0</span></div>
+                          <div class="filter-group-pills">
+                            <button class="filter-pill" data-value="beta_caryophyllene" title="Beta-caryophyllene — anti-inflammatory; CB2 binding">BCP (β-caryophyllene)</button>
+                            <button class="filter-pill" data-value="myrcene" title="Myrcene — sedating; muscle relaxant">Myrcene</button>
+                            <button class="filter-pill" data-value="limonene" title="Limonene — mood lift; anti-anxiety">Limonene</button>
+                            <button class="filter-pill" data-value="linalool" title="Linalool — calming; sleep">Linalool</button>
+                            <button class="filter-pill" data-value="alpha_pinene" title="Pinene — alertness; counters short-term memory loss">Pinene</button>
                           </div>
                         </div>
                         <div class="filter-group" data-filter-group="price">
@@ -745,6 +766,10 @@
       </div>
       <form id="form-add-appointment" class="modal-body">
         <input type="hidden" id="appt-patient-id">
+        <div class="alert-banner alert-warning hidden" id="appt-intake-warning">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>This patient hasn't completed their intake form. The appointment will be created with status <strong>Pending Intake Form</strong>.</span>
+        </div>
         <div class="form-group">
           <label>Patient</label>
           <div class="appt-patient-display" id="appt-patient-name"></div>
@@ -755,6 +780,7 @@
             <select id="appt-type" required>
               <option value="Initial Consultation">Initial Consultation</option>
               <option value="Follow Up Consultation">Follow Up Consultation</option>
+              <option value="In Patient Consultation">In Patient Consultation</option>
             </select>
           </div>
         </div>
