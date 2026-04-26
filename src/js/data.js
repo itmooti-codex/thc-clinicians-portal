@@ -539,11 +539,17 @@
     // Latest_Intake_Form_for_Patient_id pointer — that pointer is not always
     // populated, which caused patients with a real intake on file to look
     // "Not started" in the UI.
+    // VitalSync orderBy uses [{path: [...], type: desc|asc}] — NOT
+    // {field, direction}. The wrong shape caused the whole query to error,
+    // which the .catch below silently swallowed → "No intake form on file".
+    // Sort by date_created (always populated) so notes still surface even
+    // when Intake_Completed_At hasn't been stamped yet (drafts vs completed
+    // is checked downstream via __intakeIsRecent).
     var q = 'query getLatestIntakeForm($pid: IntScalar!) { getClinicalNotes(' +
       'query: [' +
         '{ where:    { _OPERATOR_: eq, patient_id: $pid } }, ' +
         '{ andWhere: { _OPERATOR_: eq, Note_Type: "Intake Form" } }' +
-      '], orderBy: { field: Intake_Completed_At, direction: desc }, limit: 1) { ' +
+      '], orderBy: [{ path: ["date_created"], type: desc }], limit: 1) { ' +
       INTAKE_FORM_QUERY_FIELDS + ' } }';
     return fetchGraphQL(q, { pid: Number(patientId) }).then(function (data) {
       var list = data && data.getClinicalNotes;
