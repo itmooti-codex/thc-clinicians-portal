@@ -701,11 +701,16 @@
     if (btnStartAudio) btnStartAudio.addEventListener('click', function () { startConsultation(true); });
     if (btnEndVideo) btnEndVideo.addEventListener('click', function () {
       if (window.VideoConsultation) {
+        // Capture call context BEFORE endCall() clears activeCall — we need
+        // audioOnly to tell the summariser this was an in-person consult
+        // (single-mic, both speakers under one label).
+        var callInfo = window.VideoConsultation.getActiveCallInfo();
+        var wasAudioOnly = !!(callInfo && callInfo.audioOnly);
         lastTranscriptText = window.VideoConsultation.getTranscriptText() || '';
         window.VideoConsultation.endCall();
         hideActiveCallIndicator();
         if (lastTranscriptText.trim()) {
-          generateTranscriptSummary(lastTranscriptText);
+          generateTranscriptSummary(lastTranscriptText, { audioOnly: wasAudioOnly });
         }
       }
     });
@@ -4408,11 +4413,13 @@
 
   // ── Transcript Summary (AI-extracted from video call) ──────────
 
-  function generateTranscriptSummary(transcriptText) {
+  function generateTranscriptSummary(transcriptText, opts) {
     if (!transcriptText || !transcriptText.trim()) return;
 
     var noteEditor = u.byId('workspace-note-content');
     if (!noteEditor) return;
+
+    var audioOnly = !!(opts && opts.audioOnly);
 
     // Show loading indicator in the note editor
     var loadingEl = document.createElement('div');
@@ -4421,9 +4428,23 @@
     loadingEl.textContent = 'Analysing consultation transcript...';
     noteEditor.appendChild(loadingEl);
 
+    // The audio-only path records both speakers from a single in-room mic
+    // attributed to the doctor's Daily participant \u2014 every transcript line
+    // is labelled with the doctor's name even though the patient is also
+    // speaking. The summariser MUST be told this so it doesn't attribute
+    // patient-reported symptoms to the doctor.
+    var contextBlock = audioOnly
+      ? 'An in-person consultation has just concluded. The audio was captured from a single microphone in the consultation room. ' +
+        'IMPORTANT: every line in the transcript is labelled with the doctor\u2019s name, but in reality BOTH the doctor AND the patient ' +
+        'are speaking and present in the room. Use clinical context to infer who is saying what:\n' +
+        '- The doctor typically asks questions, states clinical observations, explains treatment options, and gives instructions.\n' +
+        '- The patient typically describes symptoms, reports treatment responses or side effects, and answers questions.\n' +
+        'Do not assume a single speaker; treat the transcript as a two-way conversation regardless of the speaker labels.\n\n'
+      : 'A telehealth video consultation has just concluded. Below is the live transcript.\n\n';
+
     var prompt =
       'You are a clinical documentation assistant for an Australian medicinal cannabis clinic.\n\n' +
-      'A telehealth video consultation has just concluded. Below is the live transcript.\n\n' +
+      contextBlock +
       'Extract ONLY the clinically relevant information. Specifically identify:\n' +
       '- Chief complaint and symptoms discussed\n' +
       '- Clinical observations noted by the clinician\n' +

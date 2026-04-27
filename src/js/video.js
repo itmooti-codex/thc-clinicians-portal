@@ -459,6 +459,7 @@
       patientName: activePatientName,
       patientId: activePatientId,
       startTime: callStartTime,
+      audioOnly: !!activeCall.audioOnly,
     };
   }
 
