@@ -72,6 +72,11 @@
     if (type) badge.classList.add('video-status-' + type);
   }
 
+  function updateBarLabel(text) {
+    var label = document.getElementById('video-bar-label');
+    if (label) label.textContent = text;
+  }
+
   function updateTranscriptIndicator(active) {
     var indicator = document.getElementById('transcript-indicator');
     if (!indicator) return;
@@ -126,9 +131,12 @@
 
     var audioOnly = !!(activeCall && activeCall.audioOnly);
 
-    // For in-person audio-only consults, dailyConfig.userMediaVideoConstraints:
-    // false tells Daily to never request the camera at all — no permission
-    // prompt, no video track. Audio still records and transcribes normally.
+    // For in-person audio-only consults, top-level videoSource:false tells
+    // Daily there's no video device — no camera prompt, no video track. Mic
+    // is still acquired (audioSource defaults to true) so transcription works.
+    // Do NOT nest this under dailyConfig.userMediaVideoConstraints — that
+    // path puts the join state machine into a permanent "waiting for video
+    // track" stall, leaving the badge stuck on "Starting recording...".
     var frameOpts = {
       iframeStyle: {
         width: '100%',
@@ -154,7 +162,7 @@
       },
     };
     if (audioOnly) {
-      frameOpts.dailyConfig = { userMediaVideoConstraints: false };
+      frameOpts.videoSource = false;
     }
     var frame = window.DailyIframe.createFrame(container, frameOpts);
 
@@ -270,6 +278,7 @@
     // so doctors don't click it expecting something to happen.
     if (expandBtn) expandBtn.classList.toggle('hidden', !!audioOnly);
 
+    updateBarLabel(audioOnly ? 'Audio Transcription' : 'Video Consultation');
     updateStatusBadge(audioOnly ? 'Starting recording...' : 'Connecting...', 'connecting');
     clearTranscript();
 
@@ -280,14 +289,10 @@
       return;
     }
 
-    // For audioOnly, dailyConfig.userMediaVideoConstraints:false in
-    // createCallFrame already prevents camera acquisition. startVideoOff:true
-    // is a belt-and-braces flag in case the SDK ever ignores the constraint.
-    // (videoSource:false is NOT a valid join option — using it caused the
-    // join to silently never complete; the call stayed on "Starting
-    // recording" forever and the joined-meeting event never fired.)
+    // No-video setup is done at frame level (frameOpts.videoSource = false).
+    // Do NOT pass startVideoOff or videoSource here — both have caused
+    // the join to silently hang in past audio-only regressions.
     var joinOpts = { url: roomUrl, token: token };
-    if (audioOnly) joinOpts.startVideoOff = true;
 
     callFrame.join(joinOpts).catch(function (err) {
       console.error('Failed to join call:', err);
@@ -321,6 +326,7 @@
       endBtn.classList.add('hidden');
       endBtn.textContent = 'End Call';
     }
+    updateBarLabel('Video Consultation');
 
     videoExpanded = false;
     if (callArea) callArea.classList.remove('video-expanded');
