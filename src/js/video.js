@@ -126,45 +126,50 @@
       return null;
     }
 
-    var container = document.getElementById('video-container');
-    if (!container) return null;
-
     var audioOnly = !!(activeCall && activeCall.audioOnly);
+    var frame;
 
-    // For in-person audio-only consults, top-level videoSource:false tells
-    // Daily there's no video device — no camera prompt, no video track. Mic
-    // is still acquired (audioSource defaults to true) so transcription works.
-    // Do NOT nest this under dailyConfig.userMediaVideoConstraints — that
-    // path puts the join state machine into a permanent "waiting for video
-    // track" stall, leaving the badge stuck on "Starting recording...".
-    var frameOpts = {
-      iframeStyle: {
-        width: '100%',
-        height: '100%',
-        border: 'none',
-        borderRadius: '8px',
-      },
-      showLeaveButton: false,
-      showFullscreenButton: true,
-      theme: {
-        colors: {
-          accent: '#20c0c0',
-          accentText: '#ffffff',
-          background: '#f7fafa',
-          backgroundAccent: '#e0f7f7',
-          baseText: '#1a1a2e',
-          border: '#e2e8f0',
-          mainAreaBg: '#1a1a2e',
-          mainAreaBgAccent: '#20c0c0',
-          mainAreaText: '#ffffff',
-          supportiveText: '#718096',
-        },
-      },
-    };
     if (audioOnly) {
-      frameOpts.videoSource = false;
+      // Headless call object — no iframe, no Daily prebuilt UI. The browser
+      // shows its native mic-permission prompt directly; on accept,
+      // joined-meeting fires and transcription starts. We deliberately do
+      // NOT use createFrame() in audio-only mode because our CSS hides the
+      // video tile (which is also where Daily's prebuilt "Join" button
+      // lives) — the doctor would have nothing to click and the call would
+      // hang forever on "Starting recording...".
+      frame = window.DailyIframe.createCallObject({
+        audioSource: true,
+        videoSource: false,
+      });
+    } else {
+      var container = document.getElementById('video-container');
+      if (!container) return null;
+      var frameOpts = {
+        iframeStyle: {
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          borderRadius: '8px',
+        },
+        showLeaveButton: false,
+        showFullscreenButton: true,
+        theme: {
+          colors: {
+            accent: '#20c0c0',
+            accentText: '#ffffff',
+            background: '#f7fafa',
+            backgroundAccent: '#e0f7f7',
+            baseText: '#1a1a2e',
+            border: '#e2e8f0',
+            mainAreaBg: '#1a1a2e',
+            mainAreaBgAccent: '#20c0c0',
+            mainAreaText: '#ffffff',
+            supportiveText: '#718096',
+          },
+        },
+      };
+      frame = window.DailyIframe.createFrame(container, frameOpts);
     }
-    var frame = window.DailyIframe.createFrame(container, frameOpts);
 
     // ── Event handlers ──
 
@@ -289,9 +294,6 @@
       return;
     }
 
-    // No-video setup is done at frame level (frameOpts.videoSource = false).
-    // Do NOT pass startVideoOff or videoSource here — both have caused
-    // the join to silently hang in past audio-only regressions.
     var joinOpts = { url: roomUrl, token: token };
 
     callFrame.join(joinOpts).catch(function (err) {
