@@ -124,7 +124,12 @@
     var container = document.getElementById('video-container');
     if (!container) return null;
 
-    var frame = window.DailyIframe.createFrame(container, {
+    var audioOnly = !!(activeCall && activeCall.audioOnly);
+
+    // For in-person audio-only consults, dailyConfig.userMediaVideoConstraints:
+    // false tells Daily to never request the camera at all — no permission
+    // prompt, no video track. Audio still records and transcribes normally.
+    var frameOpts = {
       iframeStyle: {
         width: '100%',
         height: '100%',
@@ -147,7 +152,11 @@
           supportiveText: '#718096',
         },
       },
-    });
+    };
+    if (audioOnly) {
+      frameOpts.dailyConfig = { userMediaVideoConstraints: false };
+    }
+    var frame = window.DailyIframe.createFrame(container, frameOpts);
 
     // ── Event handlers ──
 
@@ -250,12 +259,16 @@
     var startVideoBtn = document.getElementById('btn-start-video');
     var startAudioBtn = document.getElementById('btn-start-audio');
     var endBtn = document.getElementById('btn-end-video');
+    var expandBtn = document.getElementById('btn-toggle-video-size');
     if (startVideoBtn) startVideoBtn.classList.add('hidden');
     if (startAudioBtn) startAudioBtn.classList.add('hidden');
     if (endBtn) {
       endBtn.classList.remove('hidden');
       endBtn.textContent = audioOnly ? 'Stop Recording' : 'End Call';
     }
+    // No video tile in audio-only mode → expand button is meaningless. Hide it
+    // so doctors don't click it expecting something to happen.
+    if (expandBtn) expandBtn.classList.toggle('hidden', !!audioOnly);
 
     updateStatusBadge(audioOnly ? 'Starting recording...' : 'Connecting...', 'connecting');
     clearTranscript();
@@ -267,15 +280,14 @@
       return;
     }
 
-    // audioOnly: tell Daily to never acquire the camera. This prevents the
-    // browser camera permission prompt and skips creating a video track
-    // entirely. startVideoOff is a belt-and-braces flag in case Daily ever
-    // probes the camera before honoring videoSource:false.
+    // For audioOnly, dailyConfig.userMediaVideoConstraints:false in
+    // createCallFrame already prevents camera acquisition. startVideoOff:true
+    // is a belt-and-braces flag in case the SDK ever ignores the constraint.
+    // (videoSource:false is NOT a valid join option — using it caused the
+    // join to silently never complete; the call stayed on "Starting
+    // recording" forever and the joined-meeting event never fired.)
     var joinOpts = { url: roomUrl, token: token };
-    if (audioOnly) {
-      joinOpts.videoSource = false;
-      joinOpts.startVideoOff = true;
-    }
+    if (audioOnly) joinOpts.startVideoOff = true;
 
     callFrame.join(joinOpts).catch(function (err) {
       console.error('Failed to join call:', err);
@@ -301,8 +313,10 @@
     var startVideoBtn = document.getElementById('btn-start-video');
     var startAudioBtn = document.getElementById('btn-start-audio');
     var endBtn = document.getElementById('btn-end-video');
+    var expandBtn = document.getElementById('btn-toggle-video-size');
     if (startVideoBtn) startVideoBtn.classList.remove('hidden');
     if (startAudioBtn) startAudioBtn.classList.remove('hidden');
+    if (expandBtn) expandBtn.classList.remove('hidden');
     if (endBtn) {
       endBtn.classList.add('hidden');
       endBtn.textContent = 'End Call';
