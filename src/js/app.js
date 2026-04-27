@@ -1870,6 +1870,13 @@
   var CONSULTATION_FEES = {
     'Initial Consultation': { price: 59, productId: '1' },
     'Follow Up Consultation': { price: 39, productId: '13' },
+    // In-person consults never charge — the In-person modality path in
+    // handleCreateAppointment forces feeAmount=0 before this lookup runs,
+    // so this entry is defensive: if anything ever calls CONSULTATION_FEES
+    // for In Patient Consultation directly, it gets explicit zeros instead
+    // of falling through to the generic { price: feeAmount, productId: '0' }
+    // fallback at the call site.
+    'In Patient Consultation': { price: 0, productId: '0' },
   };
 
   function updateApptFee() {
