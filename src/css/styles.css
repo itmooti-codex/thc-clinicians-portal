@@ -3838,7 +3838,7 @@ a.record-card-link:hover {
   color: #d97706;
   font-weight: 600;
 }
-.product-actions { flex-shrink: 0; margin-left: 8px; }
+.product-actions { flex-shrink: 0; margin-left: 12px; display: flex; gap: 8px; align-items: center; }
 
 /* Formulary toolbar */
 .formulary-toolbar {

@@ -5718,7 +5718,10 @@
     var html = '<div class="similar-results-header">Top 3 Similar to ' + escHtml(item.item_name || '') + '</div>';
     html += '<div class="similar-results-grid">';
     results.forEach(function (r) {
-      var c = r.candidate;
+      // findSimilar() returns { item, score, gpPct, breakdown, matchLabel }
+      // — earlier code here read r.candidate which silently undefined-crashed
+      // the inner template, so the expansion stayed empty.
+      var c = r.item;
       html += '<div class="similar-card" data-item-id="' + c.id + '">';
       html += '<div class="similar-card-name">' + escHtml(c.item_name || '') + '</div>';
       html += '<div class="similar-card-meta">';
