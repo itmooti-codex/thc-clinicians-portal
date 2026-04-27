@@ -2443,7 +2443,25 @@
       row('Signed document', docLinkBlock) +
       row('Signature', signatureBlock);
 
+    // ── AI Triage Summary card (only renders when summary HTML is present) ──
+    // The HTML comes from the patient-portal backend (nurse-summary.ts) which
+    // controls the source — safe to render directly. Intake notes from before
+    // the AI feature shipped (or where generation failed) won't have this.
+    var aiSummaryCardHtml = '';
+    if (d.aiSummaryHtml && String(d.aiSummaryHtml).trim()) {
+      var aiBadge = '<span class="intake-ro-ai-badge">AI</span>';
+      var aiBody = '<div class="intake-ro-ai-content">' + d.aiSummaryHtml + '</div>';
+      aiSummaryCardHtml =
+        '<section class="intake-ro-card intake-ro-card--ai">' +
+          '<header class="intake-ro-card-header intake-ro-card-header--ai">' +
+            aiBadge + ' Triage Summary <span class="intake-ro-ai-sub">· generated for the prescribing GP</span>' +
+          '</header>' +
+          '<div class="intake-ro-card-body">' + aiBody + '</div>' +
+        '</section>';
+    }
+
     var html = '<div class="intake-readonly">';
+    html += aiSummaryCardHtml;
     html += card('At a Glance', glanceBody, 'glance');
     html += card('Clinical Picture', clinicalBody);
     html += card('Lifestyle & History', historyBody);
@@ -5005,6 +5023,9 @@
       intakeIsRecent: !!d.__intakeIsRecent,
       intakeFormId: d.__intakeFormId || null,
       intakeCompletedAt: d.__intakeCompletedAt || null,
+      // AI-generated triage-nurse summary HTML (from intake step 8).
+      // Surfaced as a card at the top of the intake tab.
+      aiSummaryHtml: d.__aiSummaryHtml || '',
       uniqueId: d.unique_id || '',
       sendIntakeForm: d.send_intake_form === '1' || d.send_intake_form === 1 || d.send_intake_form === true,
 
