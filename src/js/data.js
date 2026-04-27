@@ -1065,20 +1065,27 @@
   // ── Doctor Preferences ──────────────────────────────────────
 
   function fetchDoctorPreferences(doctorId) {
-    return ontraportRequest('GET', '/object?objectID=0&id=' + encodeURIComponent(doctorId))
-      .then(function (raw) {
-        // ontraportRequest already strips Ontraport's outer `data` wrapper,
-        // so `raw` here is the flat fields object: { f3365, f3366, ... }.
-        // The previous code did `raw.data` (double unwrap) which always
-        // returned undefined → settings appeared to reset on every reload.
-        if (!raw) return {};
-        var prefs = {};
-        for (var key in DOCTOR_PREF_FIELDS) {
-          var fid = DOCTOR_PREF_FIELDS[key];
-          if (raw[fid] != null && raw[fid] !== '') prefs[key] = raw[fid];
-        }
-        return prefs;
-      });
+    // Read via VitalSync GraphQL — faster and more reliable than Ontraport
+    // REST, and consistent with the rest of the data layer (fetchPatients,
+    // fetchAppointments, fetchPatientById, fetchPatientIntake all use
+    // GraphQL too). The four fields live on Contact under their PascalCase
+    // GraphQL names (per the schema's "Doctor Prescribing Preferences"
+    // group); we map them back to the legacy snake_case keys the rest of
+    // the app uses.
+    var q = 'query getDoctorPrefs($id: IntScalar!) { getContacts(' +
+      'query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1' +
+      ') { Repeats_Default Interval_Days_Default Calendar_View_Start Calendar_View_End } }';
+    return fetchGraphQL(q, { id: Number(doctorId) }).then(function (data) {
+      var list = data && data.getContacts;
+      var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
+      var d = arr.length ? arr[0] : {};
+      var prefs = {};
+      if (d.Repeats_Default != null && d.Repeats_Default !== '') prefs.default_repeats = d.Repeats_Default;
+      if (d.Interval_Days_Default != null && d.Interval_Days_Default !== '') prefs.default_interval_days = d.Interval_Days_Default;
+      if (d.Calendar_View_Start != null && d.Calendar_View_Start !== '') prefs.calendar_view_start = d.Calendar_View_Start;
+      if (d.Calendar_View_End != null && d.Calendar_View_End !== '') prefs.calendar_view_end = d.Calendar_View_End;
+      return prefs;
+    });
   }
 
   function saveDoctorPreferences(doctorId, prefs) {

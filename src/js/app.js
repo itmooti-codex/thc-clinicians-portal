@@ -190,13 +190,20 @@
         }
       }).catch(function () {});
 
-      // Load doctor preferences from Ontraport
+      // Load doctor preferences via VitalSync GraphQL.
       data.fetchDoctorPreferences(doctorIdNum).then(function (prefs) {
         window.DoctorPreferences.setAll(prefs);
         // Sync calendar hours to localStorage for existing calendar code
         var start = window.DoctorPreferences.get('calendar_view_start');
         var end = window.DoctorPreferences.get('calendar_view_end');
         setCalendarViewHours(start, end);
+        // Re-paint the Settings form if it's been rendered already. Without
+        // this, a hard-refresh that lands on the Settings tab paints the form
+        // BEFORE this async fetch returns, so the form shows PREF_DEFAULTS
+        // even though the saved values are right there in the cache moments
+        // later. populateSettingsForm() is guarded by if(el) per field, so
+        // it's a safe no-op when the Settings view isn't mounted.
+        populateSettingsForm();
       }).catch(function () { /* silent — defaults used */ });
     }
 
