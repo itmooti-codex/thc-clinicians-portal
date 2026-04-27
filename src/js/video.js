@@ -153,8 +153,16 @@
 
     frame.on('joined-meeting', function () {
       callStartTime = new Date();
-      updateStatusBadge('Live', 'live');
-      if (window.AppUtils) window.AppUtils.showToast('Video consultation started — waiting for patient to join', 'success');
+      var audioOnly = !!(activeCall && activeCall.audioOnly);
+      updateStatusBadge(audioOnly ? 'Recording' : 'Live', 'live');
+      if (window.AppUtils) {
+        window.AppUtils.showToast(
+          audioOnly
+            ? 'Audio recording started — transcribing the room'
+            : 'Video consultation started — waiting for patient to join',
+          'success'
+        );
+      }
       try {
         frame.startTranscription({
           extra: {
@@ -229,16 +237,27 @@
     return frame;
   }
 
-  function joinCall(roomUrl, token) {
+  function joinCall(roomUrl, token, audioOnly) {
     var callArea = document.getElementById('video-call-area');
-    if (callArea) callArea.classList.remove('hidden');
+    if (callArea) {
+      callArea.classList.remove('hidden');
+      // audio-only-mode hides the dark video tile and lets the transcript
+      // panel take the full width so the doctor sees only what matters
+      // during an in-person consult: the live transcript.
+      callArea.classList.toggle('audio-only-mode', !!audioOnly);
+    }
 
-    var startBtn = document.getElementById('btn-start-video');
+    var startVideoBtn = document.getElementById('btn-start-video');
+    var startAudioBtn = document.getElementById('btn-start-audio');
     var endBtn = document.getElementById('btn-end-video');
-    if (startBtn) startBtn.classList.add('hidden');
-    if (endBtn) endBtn.classList.remove('hidden');
+    if (startVideoBtn) startVideoBtn.classList.add('hidden');
+    if (startAudioBtn) startAudioBtn.classList.add('hidden');
+    if (endBtn) {
+      endBtn.classList.remove('hidden');
+      endBtn.textContent = audioOnly ? 'Stop Recording' : 'End Call';
+    }
 
-    updateStatusBadge('Connecting...', 'connecting');
+    updateStatusBadge(audioOnly ? 'Starting recording...' : 'Connecting...', 'connecting');
     clearTranscript();
 
     callFrame = createCallFrame();
@@ -248,10 +267,20 @@
       return;
     }
 
-    callFrame.join({ url: roomUrl, token: token }).catch(function (err) {
+    // audioOnly: tell Daily to never acquire the camera. This prevents the
+    // browser camera permission prompt and skips creating a video track
+    // entirely. startVideoOff is a belt-and-braces flag in case Daily ever
+    // probes the camera before honoring videoSource:false.
+    var joinOpts = { url: roomUrl, token: token };
+    if (audioOnly) {
+      joinOpts.videoSource = false;
+      joinOpts.startVideoOff = true;
+    }
+
+    callFrame.join(joinOpts).catch(function (err) {
       console.error('Failed to join call:', err);
       updateStatusBadge('Error', 'error');
-      if (window.AppUtils) window.AppUtils.showToast('Failed to join video call: ' + err.message, 'error');
+      if (window.AppUtils) window.AppUtils.showToast('Failed to start ' + (audioOnly ? 'recording' : 'video call') + ': ' + err.message, 'error');
     });
   }
 
@@ -266,12 +295,18 @@
     if (callArea) {
       callArea.classList.add('hidden');
       callArea.classList.remove('video-ended-transcript-only');
+      callArea.classList.remove('audio-only-mode');
     }
 
-    var startBtn = document.getElementById('btn-start-video');
+    var startVideoBtn = document.getElementById('btn-start-video');
+    var startAudioBtn = document.getElementById('btn-start-audio');
     var endBtn = document.getElementById('btn-end-video');
-    if (startBtn) startBtn.classList.remove('hidden');
-    if (endBtn) endBtn.classList.add('hidden');
+    if (startVideoBtn) startVideoBtn.classList.remove('hidden');
+    if (startAudioBtn) startAudioBtn.classList.remove('hidden');
+    if (endBtn) {
+      endBtn.classList.add('hidden');
+      endBtn.textContent = 'End Call';
+    }
 
     videoExpanded = false;
     if (callArea) callArea.classList.remove('video-expanded');
@@ -303,11 +338,12 @@
     });
   }
 
-  function startCall(appointmentId, doctorName, patientId, patientName) {
+  function startCall(appointmentId, doctorName, patientId, patientName, opts) {
     if (!appointmentId) return;
+    var audioOnly = !!(opts && opts.audioOnly);
     activePatientName = patientName || '';
     activePatientId = patientId || null;
-    updateStatusBadge('Creating room...', 'connecting');
+    updateStatusBadge(audioOnly ? 'Preparing recording...' : 'Creating room...', 'connecting');
 
     startVideoRoom(appointmentId, doctorName, patientId).then(function (data) {
       activeCall = {
@@ -315,12 +351,13 @@
         roomUrl: data.roomUrl,
         roomName: data.roomName,
         token: data.token,
+        audioOnly: audioOnly,
       };
-      joinCall(data.roomUrl, data.token);
+      joinCall(data.roomUrl, data.token, audioOnly);
     }).catch(function (err) {
-      console.error('Failed to start video:', err);
+      console.error('Failed to start ' + (audioOnly ? 'audio recording' : 'video') + ':', err);
       updateStatusBadge('Error', 'error');
-      if (window.AppUtils) window.AppUtils.showToast('Failed to start video: ' + err.message, 'error');
+      if (window.AppUtils) window.AppUtils.showToast('Failed to start ' + (audioOnly ? 'audio recording' : 'video') + ': ' + err.message, 'error');
     });
   }
 

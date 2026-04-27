@@ -2416,6 +2416,17 @@ a.record-card-link:hover {
 .video-call-area.video-ended-transcript-only .video-container {
   display: none;
 }
+/* In-person audio-only mode: no camera, no video tile. Transcript panel
+   takes the full width so the doctor sees only the live transcript while
+   recording the room audio. */
+.video-call-area.audio-only-mode {
+  grid-template-columns: 1fr;
+  height: auto;
+  min-height: 320px;
+}
+.video-call-area.audio-only-mode .video-container {
+  display: none;
+}
 .video-container {
   border-radius: var(--radius);
   overflow: hidden;
