@@ -1046,12 +1046,15 @@
   function fetchDoctorPreferences(doctorId) {
     return ontraportRequest('GET', '/object?objectID=0&id=' + encodeURIComponent(doctorId))
       .then(function (raw) {
-        if (!raw || !raw.data) return {};
-        var d = raw.data;
+        // ontraportRequest already strips Ontraport's outer `data` wrapper,
+        // so `raw` here is the flat fields object: { f3365, f3366, ... }.
+        // The previous code did `raw.data` (double unwrap) which always
+        // returned undefined → settings appeared to reset on every reload.
+        if (!raw) return {};
         var prefs = {};
         for (var key in DOCTOR_PREF_FIELDS) {
           var fid = DOCTOR_PREF_FIELDS[key];
-          if (d[fid] != null && d[fid] !== '') prefs[key] = d[fid];
+          if (raw[fid] != null && raw[fid] !== '') prefs[key] = raw[fid];
         }
         return prefs;
       });
