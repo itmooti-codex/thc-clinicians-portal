@@ -852,6 +852,27 @@
   };
 
   /** Ontraport API call via authenticated server-side proxy */
+  /**
+   * Proxy to the Ontraport REST API via the clinician Express backend.
+   *
+   * IMPORTANT: This function strips one layer of Ontraport's response
+   * envelope. Ontraport returns `{ code, data: <payload> }`; this function
+   * returns `<payload>` directly. Consumers should read fields off the
+   * result directly:
+   *
+   *   ontraportRequest('GET', '/object?objectID=0&id=123').then(function (raw) {
+   *     console.log(raw.f3365);   // correct
+   *     console.log(raw.data);    // undefined — caused the settings-page
+   *                               //   reset bug fixed in commit 88c95c4
+   *   });
+   *
+   * For list endpoints (`/objects?...`), Ontraport's payload shape varies:
+   * sometimes a flat array, sometimes `{ list: [...] }`, sometimes
+   * `{ listFields, data: { ...keyed-by-id... } }`. Existing fetchers
+   * (fetchTimeslots, fetchClinicalNoteByAppointment, fetchCreditCards) use
+   * defensive multi-shape handling — copy that pattern when adding new
+   * list consumers, don't assume a single shape.
+   */
   function ontraportRequest(method, endpoint, body) {
     return fetch(API_BASE + '/api/clinician/ontraport', {
       method: 'POST',
