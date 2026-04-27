@@ -385,6 +385,10 @@
     if (apptFeeInput) {
       apptFeeInput.addEventListener('input', updatePaymentInfo);
     }
+    // Modality cards (Telehealth vs In-person) — first decision in the modal
+    u.$$('.appt-modality-card').forEach(function (card) {
+      card.addEventListener('click', function () { setApptModality(card.dataset.modality); });
+    });
     // Payment method radio toggle
     var paymentInfoEl = u.byId('appt-payment-info');
     if (paymentInfoEl) {
@@ -1793,6 +1797,32 @@
     });
   }
 
+  // Modality state for the New Appointment modal. Drives whether the
+  // Telehealth-only fields (Type dropdown, Fee input, payment info) are
+  // visible and whether billing runs on submit. In-person bookings always
+  // create a "In Patient Consultation" appointment with no fee.
+  var selectedApptModality = null; // 'telehealth' | 'in_person' | null
+
+  function setApptModality(modality) {
+    selectedApptModality = modality;
+    u.$$('.appt-modality-card').forEach(function (card) {
+      card.classList.toggle('active', card.dataset.modality === modality);
+    });
+    var telehealthFields = u.byId('appt-telehealth-fields');
+    if (telehealthFields) telehealthFields.classList.toggle('hidden', modality !== 'telehealth');
+    if (modality === 'telehealth') {
+      var typeSelect = u.byId('appt-type');
+      if (typeSelect && !typeSelect.value) typeSelect.value = 'Initial Consultation';
+      updateApptFee();
+      updatePaymentInfo();
+    } else if (modality === 'in_person') {
+      var feeInput = u.byId('appt-fee');
+      if (feeInput) feeInput.value = '';
+      var paymentInfo = u.byId('appt-payment-info');
+      if (paymentInfo) { paymentInfo.classList.add('hidden'); paymentInfo.innerHTML = ''; }
+    }
+  }
+
   function openAddAppointmentModal(preSelectedPatientId, preSelectedPatientName) {
     var searchInput = u.byId('appt-patient-search');
     var idInput = u.byId('appt-patient-id');
@@ -1817,13 +1847,9 @@
     if (slotSection) slotSection.classList.add('hidden');
     var slotIdInput = u.byId('appt-timeslot-id');
     if (slotIdInput) slotIdInput.value = '';
-    // Clear fee (optional — doctor chooses whether to charge)
-    var feeInput = u.byId('appt-fee');
-    if (feeInput) feeInput.value = '';
+    // Reset modality choice — doctor must pick Telehealth or In-person each time
+    setApptModality(null);
     selectedPaymentMethod = 'card'; // reset to card as default choice
-    // Check for card on file
-    var paymentInfo = u.byId('appt-payment-info');
-    if (paymentInfo) { paymentInfo.classList.add('hidden'); paymentInfo.innerHTML = ''; }
     if (preSelectedPatientId) {
       checkPatientCard(preSelectedPatientId);
     }
@@ -5858,6 +5884,10 @@
       u.showToast('Please search and select a patient', 'error');
       return;
     }
+    if (!selectedApptModality) {
+      u.showToast('Please choose Telehealth or In-person', 'error');
+      return;
+    }
     btn.disabled = true;
     btn.textContent = 'Creating...';
 
@@ -5883,9 +5913,18 @@
       apptTime = dateVal ? Math.floor(new Date(dateVal).getTime() / 1000) : Math.floor(Date.now() / 1000);
     }
 
-    var apptType = u.byId('appt-type').value;
-    var feeInput = u.byId('appt-fee');
-    var feeAmount = feeInput ? parseFloat(feeInput.value) : 0;
+    // For in-person, lock the type to "In Patient Consultation" and force
+    // fee to 0 — these never carry a consultation fee. For telehealth, read
+    // both from the form (Type dropdown is Initial $59 / Follow Up $39).
+    var apptType, feeAmount;
+    if (selectedApptModality === 'in_person') {
+      apptType = 'In Patient Consultation';
+      feeAmount = 0;
+    } else {
+      apptType = u.byId('appt-type').value;
+      var feeInput = u.byId('appt-fee');
+      feeAmount = feeInput ? parseFloat(feeInput.value) : 0;
+    }
 
     // If the patient hasn't completed their intake form yet, the appointment
     // gets `Pending Intake Form` status. An Ontraport rule (out of scope here)

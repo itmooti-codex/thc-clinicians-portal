@@ -775,14 +775,38 @@
           <div class="appt-patient-display" id="appt-patient-name"></div>
         </div>
         <div class="form-group">
-          <label for="appt-type">Type *</label>
-          <div class="input-wrapper">
-            <select id="appt-type" required>
-              <option value="Initial Consultation">Initial Consultation</option>
-              <option value="Follow Up Consultation">Follow Up Consultation</option>
-              <option value="In Patient Consultation">In Patient Consultation</option>
-            </select>
+          <label>Appointment type *</label>
+          <div class="appt-modality-cards">
+            <button type="button" class="appt-modality-card" data-modality="telehealth" id="modality-telehealth">
+              <svg class="appt-modality-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+              <span class="appt-modality-label">Telehealth</span>
+              <span class="appt-modality-sub">Consult with the patient online.</span>
+            </button>
+            <button type="button" class="appt-modality-card" data-modality="in_person" id="modality-in-person">
+              <svg class="appt-modality-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+              <span class="appt-modality-label">In-person</span>
+              <span class="appt-modality-sub">Patient visits the clinic.</span>
+            </button>
           </div>
+        </div>
+        <!-- Telehealth-only fields: Type dropdown + Fee + Payment info.
+             Hidden until modality=telehealth is selected. In-person locks
+             the Ontraport type to "In Patient Consultation" and never charges. -->
+        <div id="appt-telehealth-fields" class="hidden">
+          <div class="form-group">
+            <label for="appt-type">Consultation type *</label>
+            <div class="input-wrapper">
+              <select id="appt-type">
+                <option value="Initial Consultation">Initial Consultation</option>
+                <option value="Follow Up Consultation">Follow Up Consultation</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="appt-fee">Consultation Fee ($)</label>
+            <div class="input-wrapper"><input type="number" id="appt-fee" min="0" step="0.01" placeholder="0.00"></div>
+          </div>
+          <div id="appt-payment-info" class="appt-payment-info hidden"></div>
         </div>
         <div class="form-group">
           <label>When</label>
@@ -801,11 +825,6 @@
           <p id="appt-timeslot-empty" class="empty-state-sm hidden">No available timeslots found.</p>
           <input type="hidden" id="appt-timeslot-id">
         </div>
-        <div class="form-group">
-          <label for="appt-fee">Consultation Fee ($)</label>
-          <div class="input-wrapper"><input type="number" id="appt-fee" min="0" step="0.01" placeholder="0.00"></div>
-        </div>
-        <div id="appt-payment-info" class="appt-payment-info hidden"></div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-close-modal="modal-add-appointment">Cancel</button>
           <button type="submit" class="btn btn-primary" id="btn-submit-appointment">Create Appointment</button>
