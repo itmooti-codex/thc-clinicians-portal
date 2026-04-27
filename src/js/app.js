@@ -2460,9 +2460,12 @@
         '</section>';
     }
 
+    // Order is deliberate: At a Glance first so the doctor never misses
+    // structured eligibility flags under 5KB of narrative. AI summary second
+    // for depth context. Clinical/Lifestyle/Documents below for drill-down.
     var html = '<div class="intake-readonly">';
-    html += aiSummaryCardHtml;
     html += card('At a Glance', glanceBody, 'glance');
+    html += aiSummaryCardHtml;
     html += card('Clinical Picture', clinicalBody);
     html += card('Lifestyle & History', historyBody);
     html += card('Documents', documentsBody);
