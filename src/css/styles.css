@@ -555,6 +555,125 @@ h1, h2, h3, h4 {
 .chip-completed { background: #1f2937; color: #fff; }
 .chip-cancelled { background: #fee2e2; color: #991b1b; }
 .chip-reschedule { background: #fef9c3; color: #a16207; }
+/* Patient hasn't completed intake — appointment is provisional until they do. */
+.chip-pending-intake { background: #ffedd5; color: #9a3412; border: 1px dashed #f97316; }
+
+/* ── Intake Form (read-only tab) ─────────────────────────── */
+.intake-readonly { display: flex; flex-direction: column; gap: 14px; }
+
+/* Top-level grouping cards: At a Glance / Clinical Picture / Lifestyle / Documents */
+.intake-ro-card {
+  background: var(--brand-surface, #fff);
+  border: 1px solid var(--brand-border, #e2e8f0);
+  border-radius: var(--radius, 8px);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.intake-ro-card:hover { border-color: var(--brand-primary-muted, #4dd8d8); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.08)); }
+.intake-ro-card-header {
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--brand-text, #1a1a2e);
+  background: var(--brand-surface-warm, #f0f4f4);
+  border-bottom: 1px solid var(--brand-border, #e2e8f0);
+}
+.intake-ro-card-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+
+/* "At a Glance" headline card — primary-coloured accent strip + larger type */
+.intake-ro-card--glance { border-left: 4px solid var(--brand-primary, #20c0c0); }
+.intake-ro-card--glance .intake-ro-card-header { background: var(--brand-primary-light, #e0f7f7); color: var(--brand-primary-dark, #1a9e9e); }
+.intake-ro-glance-meta {
+  font-size: 13px;
+  color: var(--brand-text-muted, #718096);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.intake-ro-glance-meta strong { color: var(--brand-text, #1a1a2e); font-weight: 600; margin-right: 4px; }
+.intake-ro-glance-sep { color: var(--brand-text-light, #a0aec0); }
+.intake-ro-glance-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.intake-ro-glance-label { font-size: 12px; color: var(--brand-text-muted, #718096); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-right: 6px; }
+.intake-ro-muted { color: var(--brand-text-muted, #718096); font-size: 12px; }
+
+/* Inner accordion sections (used inside Clinical Picture and Lifestyle & History) */
+.intake-ro-section {
+  background: var(--brand-surface, #fff);
+  border: 1px solid var(--brand-border, #e2e8f0);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+}
+.intake-ro-section + .intake-ro-section { margin-top: 8px; }
+.intake-ro-summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--brand-text, #1a1a2e);
+  list-style: none;
+  user-select: none;
+  background: var(--brand-bg, #f7fafa);
+}
+.intake-ro-summary:hover { background: var(--brand-surface-warm, #f0f4f4); }
+.intake-ro-summary::-webkit-details-marker { display: none; }
+.intake-ro-summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 10px;
+  color: var(--brand-primary, #20c0c0);
+  transition: transform 0.15s;
+}
+.intake-ro-section[open] .intake-ro-summary { background: var(--brand-surface-warm, #f0f4f4); border-bottom: 1px solid var(--brand-border, #e2e8f0); }
+.intake-ro-section[open] .intake-ro-summary::before { transform: rotate(90deg); }
+.intake-ro-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.intake-ro-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 6px 0;
+}
+.intake-ro-label { font-size: 12px; color: var(--brand-text-muted, #718096); font-weight: 500; }
+.intake-ro-value { font-size: 13px; color: var(--brand-text, #1a1a2e); line-height: 1.5; }
+.intake-ro-chip {
+  display: inline-block;
+  background: var(--brand-primary-light, #e0f7f7);
+  color: var(--brand-primary-dark, #1a9e9e);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin: 1px 2px;
+}
+
+/* Eligibility / consent flag chips on the At-a-Glance card */
+.intake-ro-flag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.intake-ro-flag-ok {
+  background: var(--brand-success-bg, #c6f6d5);
+  color: var(--brand-success, #38a169);
+}
+.intake-ro-flag-bad {
+  background: var(--brand-error-bg, #fed7d7);
+  color: var(--brand-error, #e53e3e);
+}
 
 /* ── Patient Hero ────────────────────────────────────────────── */
 .patient-hero {

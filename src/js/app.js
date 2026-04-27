@@ -2313,80 +2313,96 @@
         '<summary class="intake-ro-summary">' + esc(title) + '</summary>' +
         '<div class="intake-ro-body">' + body + '</div></details>';
     }
+    function card(title, body, modifier) {
+      var cls = 'intake-ro-card' + (modifier ? ' intake-ro-card--' + modifier : '');
+      return '<section class="' + cls + '">' +
+        '<header class="intake-ro-card-header">' + esc(title) + '</header>' +
+        '<div class="intake-ro-card-body">' + body + '</div></section>';
+    }
 
-    var html = '<div class="intake-readonly">';
+    // ── Build "At a Glance" — the headline summary the doctor scans first ──
+    // Pulls together the most important signals across all sections so a doctor
+    // doesn't have to expand panels to brief themselves before a consult.
+    var glanceMeta = '<div class="intake-ro-glance-meta">' +
+      '<span><strong>Submitted</strong> ' + fmtDate(d.intakeCompletedAt) + '</span>' +
+      (d.intakeSource ? '<span class="intake-ro-glance-sep">·</span><span><strong>Source</strong> ' + txt(d.intakeSource) + '</span>' : '') +
+      (d.applicationStatus ? '<span class="intake-ro-glance-sep">·</span><span><strong>Status</strong> ' + txt(d.applicationStatus) + '</span>' : '') +
+      '</div>';
 
-    // Consent & documents (always open — first thing the doctor checks)
-    var signatureBlock = d.signatureUrl
-      ? '<img src="' + esc(d.signatureUrl) + '" alt="Patient signature" style="max-width:240px;max-height:80px;border:1px solid var(--brand-border);border-radius:6px;background:#fff;padding:4px">'
-      : '—';
-    var docLinkBlock = d.documentLink
-      ? '<a href="' + esc(d.documentLink) + '" target="_blank" rel="noopener" class="btn btn-sm btn-secondary" style="text-decoration:none">Download signed document</a>'
-      : '—';
-    var consentBody =
-      row('Terms &amp; conditions accepted', d.termsConditions ? '<span style="color:var(--brand-success,#16a34a);font-weight:600">Yes</span> · signed ' + fmtDate(d.termsSignedAt) : '<span style="color:var(--brand-error,#e53e3e);font-weight:600">Not signed</span>') +
-      row('Truthful declaration', yn(d.consentAccuracy)) +
-      row('Signed document', docLinkBlock) +
-      row('Signature', signatureBlock);
-    html += section('Consent &amp; Documents', consentBody, true);
+    var consentChip = d.termsConditions
+      ? '<span class="intake-ro-flag-chip intake-ro-flag-ok">✓ Consent signed ' + fmtDate(d.termsSignedAt) + '</span>'
+      : '<span class="intake-ro-flag-chip intake-ro-flag-bad">✗ Consent NOT signed</span>';
 
-    // Completion metadata
-    html += section('Intake Submission',
-      row('Submitted', fmtDate(d.intakeCompletedAt)) +
-      row('Application date', fmtDate(d.applicationDate)) +
-      row('Application status', txt(d.applicationStatus)) +
-      row('Source', txt(d.intakeSource)),
-    true);
+    // Eligibility flags — collect any "concerning" signals into chips. Empty =
+    // green "all clear" chip. Each flag is a one-word red chip the doctor sees
+    // at a glance.
+    var elFlags = [];
+    if (d.pregnancyStatus === 'Yes') elFlags.push('Pregnancy / breastfeeding');
+    if (d.psychiatricHistory && d.psychiatricHistory.length) {
+      d.psychiatricHistory.forEach(function (p) { elFlags.push(p); });
+    }
+    var eligibilityChips = elFlags.length
+      ? elFlags.map(function (f) { return '<span class="intake-ro-flag-chip intake-ro-flag-bad">⚠ ' + esc(f) + '</span>'; }).join(' ')
+      : '<span class="intake-ro-flag-chip intake-ro-flag-ok">✓ Eligibility — no flags</span>';
 
-    // Conditions (TGA-aligned)
+    var primaryConds = (d.primaryConditions || []).slice();
+    var primaryCondChips = primaryConds.length
+      ? primaryConds.map(function (c) { return '<span class="intake-ro-chip">' + esc(c) + '</span>'; }).join(' ')
+      : '<span class="intake-ro-muted">No primary condition recorded</span>';
+    var severityNote = d.severity ? ' <span class="intake-ro-muted">· severity ' + esc(String(d.severity)) + '</span>' : '';
+
+    var glanceBody =
+      glanceMeta +
+      '<div class="intake-ro-glance-row">' + consentChip + '</div>' +
+      '<div class="intake-ro-glance-row">' + eligibilityChips + '</div>' +
+      '<div class="intake-ro-glance-row"><strong class="intake-ro-glance-label">Primary condition</strong> ' + primaryCondChips + severityNote + '</div>';
+
+    // ── Card 2: Clinical Picture (open by default — drives the prescribing call) ──
     var tgaList = (d.tgaIndications || []).map(function (l) { return '<span class="intake-ro-chip">' + esc(l) + '</span>'; }).join(' ') || '—';
     var legacyList = (d.primaryConditions || []).map(function (c) { return esc(c); }).join(', ') || '—';
-    html += section('Conditions',
+    var conditionsBody =
       row('TGA indications', tgaList) +
       row('Legacy condition flags', legacyList) +
       row('Severity', txt(d.severity)) +
       row('Condition details', txt(d.conditionDetails)) +
-      row('Allergies', txt(d.allergies)),
-    true);
+      row('Allergies', txt(d.allergies));
 
-    // Eligibility screening
-    html += section('Eligibility Screening',
-      row('Allergy to cannabinoids', yn(d.psychiatricHistory && d.psychiatricHistory.length ? 'Flagged' : '')) +
+    var eligibilityBody =
       row('Pregnancy / breastfeeding', txt(d.pregnancyStatus)) +
       row('Previous treatment', txt(d.previousTreatment)) +
       row('Treatment outcome', txt(d.treatmentOutcome)) +
-      row('Long-term condition', txt(d.longTermCondition)),
-    false);
+      row('Long-term condition', txt(d.longTermCondition));
 
-    // Mental Health & PHQ-2
-    html += section('Mental Health &amp; PHQ-2',
+    var mentalHealthBody =
       row('PHQ-2 Q1', txt(d.phq2Q1)) +
       row('PHQ-2 Q2', txt(d.phq2Q2)) +
       row('Psychiatric history', (d.psychiatricHistory && d.psychiatricHistory.length) ? d.psychiatricHistory.map(esc).join(', ') : '—') +
       row('Mental health notes', txt(d.mentalHealthHistory)) +
       row('Substance use', (d.substanceUse && d.substanceUse.length) ? d.substanceUse.map(esc).join(', ') : '—') +
       row('Tobacco frequency', txt(d.tobaccoFreq)) +
-      row('Alcohol units / week', txt(d.alcoholUnits)),
-    false);
+      row('Alcohol units / week', txt(d.alcoholUnits));
 
-    // Cannabis history
+    var clinicalBody =
+      section('Conditions', conditionsBody, true) +
+      section('Eligibility Screening', eligibilityBody, false) +
+      section('Mental Health & PHQ-2', mentalHealthBody, false);
+
+    // ── Card 3: Lifestyle & History (collapsed by default) ──
     var feedbackList = (d.priorProductFeedbackList || []).map(function (f) {
       var emoji = f.liked === true ? '👍' : f.liked === false ? '👎' : '·';
       return '<div>' + emoji + ' ' + esc(f.name || '') + (f.reason ? ' — <em>' + esc(f.reason) + '</em>' : '') + '</div>';
     }).join('') || '—';
-    html += section('Cannabis History',
+    var cannabisBody =
       row('Has used cannabis before', txt(d.prevCannabisUse)) +
       row('Experience level', txt(d.experienceLevel)) +
-      row('Prior product feedback', feedbackList),
-    false);
+      row('Prior product feedback', feedbackList);
 
-    // Product preferences
     var formsArr = [];
     if (d.oilPreference === 'Yes') formsArr.push('Oils');
     if (d.flowerPreference === 'Yes') formsArr.push('Flower');
     if (d.vapePreference === 'Yes') formsArr.push('Vapes');
     if (d.ediblePreference === 'Yes') formsArr.push('Edibles');
-    html += section('Product Preferences',
+    var prefsBody =
       row('Preferred forms', formsArr.length ? formsArr.join(', ') : '—') +
       row('THC comfort', txt(d.thcComfort)) +
       row('Budget range', txt(d.budgetRange)) +
@@ -2395,24 +2411,43 @@
       row('Onset preference', txt(d.onsetPreference)) +
       row('Effect preference', txt(d.effectPreference)) +
       row('Lineage preference', txt(d.lineagePreference)) +
-      row('Organic preference', txt(d.organicPreference)),
-    false);
+      row('Organic preference', txt(d.organicPreference));
 
-    // Lifestyle & safety
-    html += section('Lifestyle &amp; Safety',
+    var lifestyleBody =
       row('Drives regularly', txt(d.drivesRegularly)) +
       row('Heavy machinery', txt(d.heavyMachinery)) +
       row('Shift work', txt(d.shiftWork)) +
       row('Competitive sport', txt(d.competitiveSport)) +
-      row('Sport type', txt(d.sportType)),
-    false);
+      row('Sport type', txt(d.sportType));
 
-    // Current medications
-    html += section('Current Medications',
+    var medsBody =
       row('Currently taking', txt(d.medications)) +
-      row('What\'s working', txt(d.previousResponse)),
-    false);
+      row('What\'s working', txt(d.previousResponse));
 
+    var historyBody =
+      section('Cannabis History', cannabisBody, false) +
+      section('Product Preferences', prefsBody, false) +
+      section('Lifestyle & Safety', lifestyleBody, false) +
+      section('Current Medications', medsBody, false);
+
+    // ── Card 4: Documents (collapsed by default) ──
+    var signatureBlock = d.signatureUrl
+      ? '<img src="' + esc(d.signatureUrl) + '" alt="Patient signature" style="max-width:240px;max-height:80px;border:1px solid var(--brand-border);border-radius:6px;background:#fff;padding:4px">'
+      : '—';
+    var docLinkBlock = d.documentLink
+      ? '<a href="' + esc(d.documentLink) + '" target="_blank" rel="noopener" class="btn btn-sm btn-secondary" style="text-decoration:none">Download signed document</a>'
+      : '—';
+    var documentsBody =
+      row('Terms & conditions accepted', d.termsConditions ? '<span style="color:var(--brand-success,#16a34a);font-weight:600">Yes</span> · signed ' + fmtDate(d.termsSignedAt) : '<span style="color:var(--brand-error,#e53e3e);font-weight:600">Not signed</span>') +
+      row('Truthful declaration', yn(d.consentAccuracy)) +
+      row('Signed document', docLinkBlock) +
+      row('Signature', signatureBlock);
+
+    var html = '<div class="intake-readonly">';
+    html += card('At a Glance', glanceBody, 'glance');
+    html += card('Clinical Picture', clinicalBody);
+    html += card('Lifestyle & History', historyBody);
+    html += card('Documents', documentsBody);
     html += '</div>';
     return html;
   }
