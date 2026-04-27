@@ -1883,16 +1883,26 @@
 
   var cachedPatientCards = null; // { patientId, cards[] }
 
-  function processAppointmentBilling(patientId, amount, productId, appointmentId) {
-    var billingOpts = {
-      contact_id: patientId,
-      amount: amount,
-      product_id: productId,
-      description: 'Consultation fee',
-      gateway_id: 4, // Live gateway
-      appointment_id: appointmentId,
-    };
+  // Gateway IDs match the patient-portal server's payment-gateway.ts so a
+  // doctor-initiated charge against a test card lands on the same sandbox
+  // gateway as a patient-initiated one. Live=4, Test=1 (default Ontraport
+  // sandbox). Test routing fires when EITHER:
+  //   - the saved card's last 4 digits are 1111 + Visa (the standard test PAN
+  //     4111 1111 1111 1111 written through to that gateway), OR
+  //   - the patient's first name starts with "test" (case-insensitive) — covers
+  //     the no-card-on-file invoice path where we have no card metadata.
+  var GATEWAY_LIVE = 4;
+  var GATEWAY_TEST = 1;
 
+  function pickGatewayId(card, patientFirstName) {
+    var last4 = card && (card.card_number_last_4 || card.last_4 || card.last4);
+    var cardType = card && (card.card_type || '');
+    if (last4 === '1111' && /visa/i.test(String(cardType))) return GATEWAY_TEST;
+    if (patientFirstName && /^test/i.test(String(patientFirstName).trim())) return GATEWAY_TEST;
+    return GATEWAY_LIVE;
+  }
+
+  function processAppointmentBilling(patientId, amount, productId, appointmentId, patientFirstName) {
     // Determine selected card (if charging)
     var selectedCard = null;
     if (selectedPaymentMethod === 'card' && cachedPatientCards && cachedPatientCards.cards.length > 0) {
@@ -1904,6 +1914,15 @@
         selectedCard = cachedPatientCards.cards.find(function (c) { return (c.card_status || '').indexOf('Default') !== -1; }) || cachedPatientCards.cards[0];
       }
     }
+
+    var billingOpts = {
+      contact_id: patientId,
+      amount: amount,
+      product_id: productId,
+      description: 'Consultation fee',
+      gateway_id: pickGatewayId(selectedCard, patientFirstName),
+      appointment_id: appointmentId,
+    };
 
     if (selectedPaymentMethod === 'card' && selectedCard && selectedCard.id) {
       // Charge selected card
@@ -5951,13 +5970,21 @@
     if (doctorId) payload.doctor_id = Number(doctorId);
     if (feeAmount > 0) payload.fee = feeAmount.toFixed(2);
 
+    // Pull the patient first name from the search/display input so the
+    // billing call can route test-contact charges (firstName starts with
+    // "test") to the sandbox gateway. Pre-selected patients had searchInput
+    // populated with "First Last" at modal-open time; selected-from-search
+    // patients have it populated when the result item is clicked.
+    var displayName = (u.byId('appt-patient-search') && u.byId('appt-patient-search').value || '').trim();
+    var patientFirstName = displayName.split(/\s+/)[0] || '';
+
     data.createAppointment(payload).then(function (result) {
       var newApptId = result && (result.id || (result.attrs && result.attrs.id));
 
       // Process billing if fee was entered
       if (feeAmount > 0) {
         var feeEntry = CONSULTATION_FEES[apptType] || { price: feeAmount, productId: '0' };
-        processAppointmentBilling(patientId, feeAmount, feeEntry.productId, newApptId);
+        processAppointmentBilling(patientId, feeAmount, feeEntry.productId, newApptId, patientFirstName);
       } else {
         u.showToast('Appointment created', 'success');
       }
