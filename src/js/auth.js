@@ -98,6 +98,11 @@
     var token = params.get('token');
     if (!token) return Promise.resolve(false);
 
+    // Capture optional post-login redirect (must be a hash route like
+    // "#rays-search" — full URLs are rejected to prevent open-redirect).
+    var next = params.get('next');
+    var safeNext = (next && next.charAt(0) === '#') ? next : null;
+
     // Clean the URL
     var cleanUrl = window.location.pathname;
     window.history.replaceState({}, '', cleanUrl);
@@ -117,6 +122,9 @@
         lastName: data.lastName,
         role: data.role,
       });
+      if (safeNext) {
+        window.location.hash = safeNext.slice(1);
+      }
       return true;
     });
   }

@@ -698,6 +698,33 @@
           </div>
         </div>
       </div>
+      <div id="view-rays-search" class="view hidden">
+        <div class="view-toolbar">
+          <h2 class="view-title" style="margin:0">Rays Wellness Product Search</h2>
+          <button type="button" class="btn btn-sm btn-ghost" id="rays-lock" style="margin-left:auto">Lock page</button>
+        </div>
+        <div id="rays-password-panel" class="rays-panel">
+          <p class="rays-panel-intro">This page is restricted. Enter the page password to continue.</p>
+          <form id="rays-password-form" autocomplete="off">
+            <label for="rays-password-input" class="login-label">Page password</label>
+            <input type="password" id="rays-password-input" class="login-input" autocomplete="new-password" required>
+            <p id="rays-password-error" class="rays-error hidden"></p>
+            <button type="submit" id="rays-password-submit" class="btn btn-primary">Unlock</button>
+          </form>
+        </div>
+        <div id="rays-search-panel" class="rays-panel hidden">
+          <form id="rays-search-form" class="rays-search-form" autocomplete="off">
+            <label for="rays-search-input" class="login-label">Search Rays catalogue</label>
+            <div class="rays-search-row">
+              <input type="text" id="rays-search-input" class="login-input" placeholder="e.g. curaleaf" required>
+              <button type="submit" id="rays-search-submit" class="btn btn-primary">Search</button>
+            </div>
+            <p id="rays-search-status" class="rays-status hidden"></p>
+          </form>
+          <p id="rays-results-count" class="rays-results-count"></p>
+          <div id="rays-results" class="rays-results"></div>
+        </div>
+      </div>
     </div>
     <!-- Add Timeslot Modal -->
     <div id="modal-add-timeslot" class="modal-overlay hidden">
@@ -1065,6 +1092,7 @@
   <script src="../src/js/similar.js"></script>
   <script src="../src/js/prescribe.js"></script>
   <script src="../src/js/video.js"></script>
+  <script src="../src/js/rays-search.js"></script>
   <script src="./test-mock.js"></script>
   <script src="../src/js/app.js"></script>
 </body>

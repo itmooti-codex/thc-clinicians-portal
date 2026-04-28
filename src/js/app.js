@@ -102,6 +102,11 @@
       var delay = window.__TEST_MOCK__ ? 0 : 500;
       setTimeout(function () { loadInitialData(); }, delay);
 
+      // Hidden #rays-search route — no nav button, direct URL only.
+      if (window.location.hash === '#rays-search') {
+        showView('rays-search');
+      }
+
       // Warn before closing browser tab during active call
       window.addEventListener('beforeunload', function (e) {
         if (window.VideoConsultation && window.VideoConsultation.isActive()) {
@@ -1467,6 +1472,11 @@
     // Show the target view
     var el = u.byId('view-' + view);
     if (el) el.classList.remove('hidden');
+
+    // Hidden Rays Wellness search (no nav button — direct URL only via #rays-search)
+    if (view === 'rays-search' && window.RaysSearch) {
+      window.RaysSearch.init();
+    }
 
     // Sync tab bar active state for main tabs
     var mainTabs = ['today', 'patients', 'appointments', 'timeslots', 'formulary', 'education', 'settings'];
