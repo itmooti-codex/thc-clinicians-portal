@@ -83,6 +83,17 @@
     });
   }
 
+  // Normalise comma-separated input → "curaleaf, cannatrek " → "curaleaf,cannatrek".
+  // Rays' API supports comma-joined OR queries but is whitespace-sensitive
+  // (a stray space changed 59 results to 33 in testing).
+  function normaliseSearchTerm(raw) {
+    return String(raw || '')
+      .split(',')
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length > 0; })
+      .join(',');
+  }
+
   function search(term) {
     var pw = getCachedPassword();
     if (!pw) { showPasswordPanel(); return Promise.reject(new Error('No password cached')); }
@@ -110,14 +121,23 @@
     });
   }
 
-  // Render whatever shape the Rays API returns. Tries common product fields
-  // (name, sku, price, stock, brand, etc.) and falls back to a JSON dump.
+  // Format priceCents (integer cents) → "$89.00".
+  function formatPrice(cents) {
+    if (cents == null || cents === '') return '';
+    var n = Number(cents);
+    if (!isFinite(n)) return String(cents);
+    return '$' + (n / 100).toFixed(2);
+  }
+
   function render(data) {
     var out = $('rays-results');
     if (!out) return;
     out.innerHTML = '';
 
+    // Rays API returns { results: [...] }. Other shapes kept as fallbacks
+    // in case the API changes.
     var items = Array.isArray(data) ? data
+      : (data && Array.isArray(data.results)) ? data.results
       : (data && Array.isArray(data.products)) ? data.products
       : (data && Array.isArray(data.data)) ? data.data
       : (data && Array.isArray(data.items)) ? data.items
@@ -135,37 +155,126 @@
       var card = document.createElement('div');
       card.className = 'rays-result-card';
 
-      var name = item.name || item.productName || item.title || item.sku || 'Unnamed product';
-      var sku = item.sku || item.code || item.id || '';
-      var brand = item.brand || item.manufacturer || item.supplier || '';
-      var price = item.price || item.priceIncGst || item.retailPrice || item.cost || '';
-      var stock = (item.stockOnHand != null) ? item.stockOnHand
-        : (item.stock != null) ? item.stock
-        : (item.quantityOnHand != null) ? item.quantityOnHand : '';
-      var active = (item.active != null) ? item.active
-        : (item.isActive != null) ? item.isActive : null;
+      var id = item._id || item.id || '';
+      var brand = item.brandName || item.brand || '';
+      var name = item.productName || item.name || item.concatSearchName || 'Unnamed product';
+      var type = item.productType || '';
+      var cannabisType = item.cannabisType || '';
+      var size = (item.productSizeAmount != null && item.productSizeMeasure)
+        ? (item.productSizeAmount + ' ' + item.productSizeMeasure) : '';
+      var price = formatPrice(item.priceCents);
+      var status = item.status || '';
+      var inStock = item.inStock;
+      var schedule = (item.tgaSchedule != null) ? item.tgaSchedule : '';
+      var sasCat = (item.tgaSasCategory != null) ? item.tgaSasCategory : '';
+      var inventory = item.inventory || {};
+      var locationCount = Object.keys(inventory).length;
 
-      var html = '<div class="rays-result-header">' +
-        '<h4 class="rays-result-name">' + escapeHtml(String(name)) + '</h4>' +
-        (sku ? '<span class="rays-result-sku">' + escapeHtml(String(sku)) + '</span>' : '') +
-        '</div>';
+      var typeStr = [type, cannabisType].filter(Boolean).join(' · ');
+      var tgaStr = [];
+      if (schedule !== '') tgaStr.push('Schedule ' + escapeHtml(String(schedule)));
+      if (sasCat !== '') tgaStr.push('SAS Cat ' + escapeHtml(String(sasCat)));
 
-      var meta = [];
-      if (brand) meta.push('<span><strong>Brand:</strong> ' + escapeHtml(String(brand)) + '</span>');
-      if (price !== '') meta.push('<span><strong>Price:</strong> $' + escapeHtml(String(price)) + '</span>');
-      if (stock !== '') meta.push('<span><strong>Stock:</strong> ' + escapeHtml(String(stock)) + '</span>');
-      if (active !== null) meta.push('<span><strong>Status:</strong> ' + (active ? 'Active' : 'Inactive') + '</span>');
-      if (meta.length) html += '<div class="rays-result-meta">' + meta.join('') + '</div>';
+      var html = '';
 
-      // Always include a collapsible raw JSON dump so clinicians can see every
-      // field the API returned (helps when the standard fields above are empty
-      // or named differently than expected).
-      html += '<details class="rays-result-raw"><summary>Raw fields</summary>' +
+      // Header: brand + product name + copy-ID button
+      html += '<div class="rays-result-header">';
+      html += '<div class="rays-result-title">';
+      if (brand) html += '<div class="rays-result-brand">' + escapeHtml(brand) + '</div>';
+      html += '<h4 class="rays-result-name">' + escapeHtml(name) + '</h4>';
+      html += '</div>';
+      if (id) {
+        html += '<button type="button" class="rays-copy-id" data-copy="' + escapeHtml(id) +
+          '" title="Click to copy ID">' +
+          '<span class="rays-copy-id-value">' + escapeHtml(id) + '</span>' +
+          '<span class="rays-copy-id-icon" aria-hidden="true">⧉</span>' +
+          '</button>';
+      }
+      html += '</div>';
+
+      // Field grid
+      var grid = [];
+      if (typeStr) grid.push(field('Type', typeStr));
+      if (size) grid.push(field('Size', size));
+      if (price) grid.push(field('Price', price));
+      if (status) grid.push(field('Status', '<span class="rays-badge rays-badge-' +
+        (status.toLowerCase() === 'active' ? 'active' : 'inactive') + '">' +
+        escapeHtml(status) + '</span>'));
+      if (inStock != null) grid.push(field('Stock',
+        '<span class="rays-badge rays-badge-' + (inStock ? 'instock' : 'oos') + '">' +
+        (inStock ? 'In stock' : 'Out of stock') + '</span>'));
+      if (tgaStr.length) grid.push(field('TGA', tgaStr.join(' · ')));
+      if (item.concatSearchName && item.concatSearchName !== name) {
+        grid.push(field('Search name', escapeHtml(item.concatSearchName)));
+      }
+      if (grid.length) html += '<div class="rays-result-grid">' + grid.join('') + '</div>';
+
+      // Inventory by location (collapsible)
+      if (locationCount > 0) {
+        html += '<details class="rays-inventory">' +
+          '<summary>Inventory by location (' + locationCount + ')</summary>' +
+          '<ul class="rays-inventory-list">';
+        Object.keys(inventory).forEach(function (locId) {
+          var loc = inventory[locId] || {};
+          var bits = [];
+          if (loc.isActive != null) bits.push(loc.isActive ? 'Active' : 'Inactive');
+          if (loc.inStock != null) bits.push(loc.inStock ? 'In stock' : 'Out of stock');
+          if (loc.notes) bits.push(escapeHtml(String(loc.notes)));
+          html += '<li><button type="button" class="rays-copy-id rays-copy-id-sm" ' +
+            'data-copy="' + escapeHtml(locId) + '" title="Copy location ID">' +
+            '<span class="rays-copy-id-value">' + escapeHtml(locId) + '</span>' +
+            '<span class="rays-copy-id-icon" aria-hidden="true">⧉</span></button> ' +
+            '<span class="rays-inventory-meta">' + bits.join(' · ') + '</span></li>';
+        });
+        html += '</ul></details>';
+      }
+
+      // Raw JSON (always available, collapsed by default)
+      html += '<details class="rays-result-raw"><summary>Raw JSON</summary>' +
         '<pre>' + escapeHtml(JSON.stringify(item, null, 2)) + '</pre></details>';
 
       card.innerHTML = html;
       out.appendChild(card);
     });
+  }
+
+  function field(label, valueHtml) {
+    return '<div class="rays-field">' +
+      '<span class="rays-label">' + escapeHtml(label) + '</span>' +
+      '<span class="rays-value">' + valueHtml + '</span>' +
+      '</div>';
+  }
+
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    // Fallback for older browsers / non-secure contexts
+    return new Promise(function (resolve, reject) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        resolve();
+      } catch (e) { reject(e); }
+    });
+  }
+
+  function flashCopied(btn) {
+    var icon = btn.querySelector('.rays-copy-id-icon');
+    if (!icon) return;
+    var original = icon.textContent;
+    icon.textContent = '✓';
+    btn.classList.add('rays-copy-id-flash');
+    setTimeout(function () {
+      icon.textContent = original;
+      btn.classList.remove('rays-copy-id-flash');
+    }, 900);
   }
 
   function escapeHtml(s) {
@@ -202,7 +311,7 @@
         e.preventDefault();
         var input = $('rays-search-input');
         var btn = $('rays-search-submit');
-        var term = (input && input.value || '').trim();
+        var term = normaliseSearchTerm(input && input.value);
         if (!term) { setSearchStatus('Enter a search term.', true); return; }
         setSearchStatus('Searching…');
         if (btn) btn.disabled = true;
@@ -217,6 +326,23 @@
           setSearchStatus(err.message || 'Search failed', true);
         }).then(function () {
           if (btn) btn.disabled = false;
+        });
+      });
+    }
+
+    // Event delegation for copy-ID buttons (data-copy="..." attribute).
+    var resultsEl = $('rays-results');
+    if (resultsEl) {
+      resultsEl.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('.rays-copy-id');
+        if (!btn) return;
+        e.preventDefault();
+        var text = btn.getAttribute('data-copy') || '';
+        if (!text) return;
+        copyToClipboard(text).then(function () {
+          flashCopied(btn);
+        }).catch(function () {
+          setSearchStatus('Copy failed — your browser blocked clipboard access.', true);
         });
       });
     }

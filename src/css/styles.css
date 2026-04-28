@@ -4234,11 +4234,12 @@ a.record-card-link:hover {
 }
 
 /* ── Rays Wellness product search (hidden #rays-search view) ── */
-.rays-panel { max-width: 760px; margin: 0 auto; padding: 24px; }
+.rays-panel { max-width: 960px; margin: 0 auto; padding: 24px; }
 .rays-panel-intro { color: var(--brand-text-muted); margin-bottom: 16px; }
 .rays-error { color: #c0392b; font-size: 14px; margin: 8px 0; }
 .rays-status { color: var(--brand-text-muted); font-size: 14px; margin: 8px 0; }
 .rays-status.error { color: #c0392b; }
+.rays-hint { color: var(--brand-text-muted); font-size: 12px; margin: 6px 0 0; }
 .rays-search-form { margin-bottom: 16px; }
 .rays-search-row { display: flex; gap: 8px; align-items: stretch; }
 .rays-search-row .login-input { margin-bottom: 0; flex: 1; }
@@ -4251,13 +4252,80 @@ a.record-card-link:hover {
   padding: 14px 16px;
   background: #fff;
 }
-.rays-result-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
-.rays-result-name { margin: 0; font-size: 16px; color: var(--brand-text); }
-.rays-result-sku { color: var(--brand-text-muted); font-size: 13px; font-family: ui-monospace, SFMono-Regular, monospace; }
-.rays-result-meta { display: flex; flex-wrap: wrap; gap: 12px 20px; font-size: 14px; color: var(--brand-text); }
-.rays-result-meta strong { color: var(--brand-text-muted); font-weight: 500; }
-.rays-result-raw { margin-top: 10px; }
-.rays-result-raw summary { cursor: pointer; color: var(--brand-text-muted); font-size: 13px; }
+.rays-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.rays-result-title { min-width: 0; flex: 1; }
+.rays-result-brand {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--brand-primary-dark);
+  margin-bottom: 2px;
+}
+.rays-result-name { margin: 0; font-size: 17px; color: var(--brand-text); line-height: 1.3; }
+
+/* Click-to-copy ID button */
+.rays-copy-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--brand-border);
+  border-radius: 6px;
+  background: var(--brand-bg);
+  color: var(--brand-text-muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.rays-copy-id:hover { background: var(--brand-primary-light); color: var(--brand-primary-dark); border-color: var(--brand-primary); }
+.rays-copy-id:active { transform: scale(0.97); }
+.rays-copy-id-flash { background: var(--brand-primary); color: #fff; border-color: var(--brand-primary); }
+.rays-copy-id-flash .rays-copy-id-value { color: #fff; }
+.rays-copy-id-value { overflow: hidden; text-overflow: ellipsis; }
+.rays-copy-id-icon { font-size: 13px; flex-shrink: 0; }
+.rays-copy-id-sm { padding: 2px 6px; font-size: 11px; }
+
+/* Field grid */
+.rays-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 18px;
+  margin-bottom: 10px;
+}
+.rays-field { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.rays-label { color: var(--brand-text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; }
+.rays-value { color: var(--brand-text); }
+
+/* Status / stock badges */
+.rays-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.rays-badge-active { background: #e6f7ec; color: #1d7d3a; }
+.rays-badge-inactive { background: #f3f3f3; color: #666; }
+.rays-badge-instock { background: #e6f7ec; color: #1d7d3a; }
+.rays-badge-oos { background: #fdecec; color: #b53a3a; }
+
+/* Inventory + raw JSON */
+.rays-inventory, .rays-result-raw { margin-top: 10px; }
+.rays-inventory summary, .rays-result-raw summary { cursor: pointer; color: var(--brand-text-muted); font-size: 13px; }
+.rays-inventory-list { list-style: none; padding: 8px 0 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.rays-inventory-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rays-inventory-meta { color: var(--brand-text-muted); font-size: 13px; }
 .rays-result-raw pre {
   margin: 8px 0 0;
   padding: 10px 12px;
