@@ -21,6 +21,7 @@
   var scoreCache = {}; // itemId → { clinicalScore, finalScore, reasoning, contraindications, tags }
   var scoreCacheReady = false;
   var previousView = null; // Where to go back to from workspace
+  var viewScrollCache = {}; // viewName -> { y, contextKey } — restores scroll position when navigating back to a view
   var lastTranscriptText = null; // Captured transcript from most recent video call
   var pendingPrescribeItem = null; // { item, recommendation } — stashed when prescribing without appointment context
   var wpTabsLoaded = { appointments: false, notes: false, scripts: false }; // Lazy load flags for workspace patient tabs
@@ -722,6 +723,12 @@
     if (btnToggleVideo) btnToggleVideo.addEventListener('click', function () {
       if (window.VideoConsultation) window.VideoConsultation.toggleSize();
     });
+    var btnToggleRecording = u.byId('btn-toggle-recording');
+    if (btnToggleRecording) btnToggleRecording.addEventListener('click', function () {
+      if (window.VideoConsultation && window.VideoConsultation.toggleRecording) {
+        window.VideoConsultation.toggleRecording();
+      }
+    });
 
     // Complete Appointment buttons
     var btnComplete = u.byId('btn-complete-appointment');
@@ -907,6 +914,38 @@
       var editBtn = e.target.closest('.btn-edit-script');
       if (editBtn) {
         openEditScriptModal(editBtn.dataset.scriptId);
+        return;
+      }
+      var copyBtn = e.target.closest('.prescribed-today-copy');
+      if (copyBtn) {
+        var apptId = copyBtn.dataset.apptId;
+        var text = _prescribedTodayPlainText(apptId);
+        if (!text) return;
+        var done = function () {
+          var prev = copyBtn.textContent;
+          copyBtn.textContent = 'Copied';
+          copyBtn.classList.add('prescribed-today-copy-done');
+          setTimeout(function () {
+            copyBtn.textContent = prev;
+            copyBtn.classList.remove('prescribed-today-copy-done');
+          }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function () {
+            u.showToast('Copy failed — select and copy manually', 'error');
+          });
+        } else {
+          // Fallback for older browsers / non-secure contexts.
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); done(); }
+          catch (err) { u.showToast('Copy failed — select and copy manually', 'error'); }
+          document.body.removeChild(ta);
+        }
         return;
       }
     });
@@ -1338,10 +1377,16 @@
         '<span class="call-indicator-sep">&middot;</span>' +
         '<span class="call-indicator-timer" id="call-indicator-timer">00:00</span>' +
       '</div>' +
-      '<button class="call-indicator-btn" id="btn-return-to-call">' +
-        'Return to Call' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="9 18 15 12 9 6"/></svg>' +
-      '</button>';
+      '<div class="call-indicator-actions">' +
+        '<button class="call-indicator-btn" id="btn-return-to-call">' +
+          'Return to Call' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</button>' +
+        '<button class="call-indicator-btn call-indicator-btn-end" id="btn-end-call-from-indicator" title="End call">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10.7 13.3a16 16 0 0 0 6 6l2-2a1 1 0 0 1 1-.3 11 11 0 0 0 3.4.5 1 1 0 0 1 1 1V22a1 1 0 0 1-1 1A18 18 0 0 1 1 5a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11 11 0 0 0 .5 3.4 1 1 0 0 1-.3 1z" transform="rotate(135 12 12)"/></svg>' +
+          'End call' +
+        '</button>' +
+      '</div>';
 
     // Insert between header and tab bar
     var tabBar = document.querySelector('.tab-bar');
@@ -1355,6 +1400,20 @@
       if (info) {
         returnToActiveCall(info.appointmentId, info.patientId);
       }
+    });
+
+    // End-call from indicator: end the Daily call and hide the indicator. The
+    // doctor still needs to click Complete in the appointment to finalise — this
+    // just frees the call so they can do that without rejoining.
+    indicator.querySelector('#btn-end-call-from-indicator').addEventListener('click', function () {
+      if (!window.VideoConsultation) return;
+      try {
+        window.VideoConsultation.endCall();
+      } catch (e) {
+        u.logError('btn-end-call-from-indicator', e);
+      }
+      hideActiveCallIndicator();
+      u.showToast('Call ended', 'success');
     });
   }
 
@@ -1384,7 +1443,60 @@
     if (indicator) indicator.classList.add('hidden');
     if (_callTimerInterval) { clearInterval(_callTimerInterval); _callTimerInterval = null; }
     removeTabLiveBadge();
+    hidePatientWaitingBanner();
   }
+
+  // ── Patient-waiting banner (N7 Phase 1) ───────────────────────
+  // Replaces the auto-fading "patient joined" toast with a persistent banner
+  // when the doctor is OUT of the workspace mid-call. Auto-dismisses when
+  // the doctor returns to the workspace or the call ends.
+
+  function _ensurePatientWaitingBanner() {
+    var banner = u.byId('patient-waiting-banner');
+    if (banner) return banner;
+    banner = document.createElement('div');
+    banner.id = 'patient-waiting-banner';
+    banner.className = 'patient-waiting-banner hidden';
+    banner.innerHTML =
+      '<span class="patient-waiting-icon" aria-hidden="true">🔔</span>' +
+      '<span class="patient-waiting-text"><strong id="patient-waiting-name">Patient</strong> is waiting on the call</span>' +
+      '<button type="button" class="btn btn-sm btn-primary" id="btn-return-to-waiting-call">Return to call</button>' +
+      '<button type="button" class="patient-waiting-close" id="btn-dismiss-waiting" title="Dismiss" aria-label="Dismiss">&times;</button>';
+    var indicator = u.byId('active-call-indicator');
+    if (indicator && indicator.parentNode) {
+      indicator.parentNode.insertBefore(banner, indicator.nextSibling);
+    } else {
+      var tabBar = document.querySelector('.tab-bar');
+      if (tabBar && tabBar.parentNode) tabBar.parentNode.insertBefore(banner, tabBar);
+    }
+    banner.querySelector('#btn-return-to-waiting-call').addEventListener('click', function () {
+      var info = window.VideoConsultation ? window.VideoConsultation.getActiveCallInfo() : null;
+      if (info) returnToActiveCall(info.appointmentId, info.patientId);
+      hidePatientWaitingBanner();
+    });
+    banner.querySelector('#btn-dismiss-waiting').addEventListener('click', hidePatientWaitingBanner);
+    return banner;
+  }
+
+  function showPatientWaitingBanner(name) {
+    // Only meaningful when the doctor is NOT in the workspace. If they are,
+    // we let the existing toast suffice — banner would be redundant.
+    var workspaceEl = u.byId('view-appointment-workspace');
+    if (!workspaceEl || !workspaceEl.classList.contains('hidden')) return;
+    var banner = _ensurePatientWaitingBanner();
+    var nameEl = u.byId('patient-waiting-name');
+    if (nameEl) nameEl.textContent = name || 'Patient';
+    banner.classList.remove('hidden');
+  }
+
+  function hidePatientWaitingBanner() {
+    var banner = u.byId('patient-waiting-banner');
+    if (banner) banner.classList.add('hidden');
+  }
+
+  // Expose so video.js can call from its participant-joined handler.
+  window._showPatientWaitingBanner = showPatientWaitingBanner;
+  window._hidePatientWaitingBanner = hidePatientWaitingBanner;
 
   function updateCallTimer(startTime) {
     var timerEl = u.byId('call-indicator-timer');
@@ -1426,6 +1538,44 @@
     if (window.VideoConsultation) window.VideoConsultation.reattach();
   }
 
+  // ── View scroll cache ──────────────────────────────────────
+  // Issue #3: navigating back/forward (e.g. patient-detail → appointment → back)
+  // collapses the document because views toggle via display:none. We cache the
+  // outgoing view's scrollY keyed by view + record id, so each patient and each
+  // appointment gets its own remembered scroll position.
+
+  function _scrollKey(view) {
+    if (view === 'patient-detail') return 'patient-detail:' + (currentPatientId || '');
+    if (view === 'appointment-workspace') return 'appointment-workspace:' + (currentAppointmentId || '');
+    return view;
+  }
+
+  function _findVisibleViewName() {
+    var nodes = u.$$('.view');
+    for (var i = 0; i < nodes.length; i++) {
+      if (!nodes[i].classList.contains('hidden') && nodes[i].id.indexOf('view-') === 0) {
+        return nodes[i].id.slice(5);
+      }
+    }
+    return null;
+  }
+
+  function _saveViewScroll(targetView) {
+    var name = _findVisibleViewName();
+    if (!name) return;
+    // Skip if not actually leaving (same-view re-entry on context change). The
+    // current scrollY belongs to the outgoing context, not the new one.
+    if (targetView && name === targetView) return;
+    viewScrollCache[_scrollKey(name)] = window.scrollY || window.pageYOffset || 0;
+  }
+
+  function _restoreViewScroll(view) {
+    var y = viewScrollCache[_scrollKey(view)] || 0;
+    var scroll = function () { window.scrollTo(0, y); };
+    if (window.requestAnimationFrame) window.requestAnimationFrame(scroll);
+    else scroll();
+  }
+
   function showView(view) {
     // 2.4 — Warn the doctor before leaving an active appointment workspace
     // without completing. Skips the warning if leaving was triggered by the
@@ -1452,6 +1602,7 @@
       }
       // Continue navigating away.
     }
+    _saveViewScroll(view);
     u.$$('.view').forEach(function (v) { v.classList.add('hidden'); });
 
     // When leaving workspace: detach (keep call alive) or cleanup (no call)
@@ -1465,13 +1616,15 @@
         window.VideoConsultation.cleanup();
       }
     } else {
-      // Returning to workspace — hide the indicator
+      // Returning to workspace — hide the indicator and any waiting-patient banner
       hideActiveCallIndicator();
+      hidePatientWaitingBanner();
     }
 
     // Show the target view
     var el = u.byId('view-' + view);
     if (el) el.classList.remove('hidden');
+    _restoreViewScroll(view);
 
     // Hidden Rays Wellness search (no nav button — direct URL only via #rays-search)
     if (view === 'rays-search' && window.RaysSearch) {
@@ -2804,9 +2957,11 @@
     var patientName = getPatientName(appt.patient_id);
     var isNext = appt.appointment_time && appt.appointment_time >= nowUnix;
     var nextClass = isNext ? ' today-card-next' : ' today-card-past';
+    var isCompleted = (appt.status || '').toLowerCase() === 'completed';
+    var completedClass = isCompleted ? ' today-card-completed' : '';
 
     return (
-      '<div class="today-card' + nextClass + ' appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '">' +
+      '<div class="today-card' + nextClass + completedClass + ' appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '">' +
         '<div class="today-card-time">' + u.escapeHtml(timeStr) + '</div>' +
         '<div class="today-card-info">' +
           '<div class="today-card-patient">' + u.escapeHtml(patientName) + '</div>' +
@@ -2950,14 +3105,10 @@
           html += renderNoteCard(note);
         });
 
-        // Scripts for this appointment
+        // Prescribed-today block — copy-friendly, formatted for paste into
+        // Best Practice / Medical Director. Replaces the previous card list.
         if (apptScripts.length > 0) {
-          html += '<div class="timeline-scripts">';
-          html += '<div class="timeline-scripts-label">Scripts from this visit</div>';
-          apptScripts.forEach(function (script) {
-            html += renderTimelineScript(script);
-          });
-          html += '</div>';
+          html += renderPrescribedTodayBlock(apptId, apptScripts);
         }
 
         html += '</div></details>';
@@ -2994,6 +3145,68 @@
         '<div class="note-card-body">' + (note.content || '<span class="text-muted">No content</span>') + '</div>' +
       '</div>'
     );
+  }
+
+  // Copy-friendly summary of medicines prescribed in a single appointment.
+  // Doctor uses this to paste into Best Practice / Medical Director without
+  // hand-typing each drug. Renders one line per script and a Copy button.
+  function renderPrescribedTodayBlock(apptId, scripts) {
+    var lines = scripts.map(function (s) { return _formatScriptLine(s); }).filter(Boolean);
+    if (!lines.length) return '';
+    var listHtml = lines.map(function (line) {
+      return '<li>' + u.escapeHtml(line) + '</li>';
+    }).join('');
+    return (
+      '<div class="prescribed-today" data-appt-id="' + u.escapeHtml(String(apptId)) + '">' +
+        '<div class="prescribed-today-header">' +
+          '<span class="prescribed-today-title">Prescribed today</span>' +
+          '<button type="button" class="prescribed-today-copy" data-appt-id="' + u.escapeHtml(String(apptId)) + '">Copy all</button>' +
+        '</div>' +
+        '<ul class="prescribed-today-list">' + listHtml + '</ul>' +
+      '</div>'
+    );
+  }
+
+  function _formatScriptLine(script) {
+    var drug = itemsMap[script.drug_id];
+    if (!drug && !script.drug_id) return '';
+    var name = drug ? (drug.item_name || '') : ('Item #' + script.drug_id);
+    var brand = drug && drug.brand ? drug.brand : '';
+    var strength = _formatItemStrength(drug);
+    var dosage = (script.dosage_instructions || '').toString().replace(/\s+/g, ' ').trim();
+    var qty = script.dispense_quantity != null ? script.dispense_quantity : '';
+    var repeats = script.repeats != null ? script.repeats : '';
+    var parts = [name + (brand ? ' (' + brand + ')' : '')];
+    if (strength) parts.push(strength);
+    if (dosage) parts.push(dosage);
+    if (qty !== '') parts.push('qty ' + qty);
+    if (repeats !== '') parts.push('repeats ' + repeats);
+    return parts.join(' — ');
+  }
+
+  function _formatItemStrength(item) {
+    if (!item) return '';
+    var thc = item.thc, cbd = item.cbd;
+    var unit = item.strength_unit || '';
+    var parts = [];
+    if (thc != null && thc !== '' && Number(thc) > 0) parts.push('THC ' + thc + (unit ? unit : ''));
+    if (cbd != null && cbd !== '' && Number(cbd) > 0) parts.push('CBD ' + cbd + (unit ? unit : ''));
+    return parts.join(' / ');
+  }
+
+  // Plain-text version for clipboard. Reuses the same formatter so what gets
+  // pasted is exactly what the doctor sees on screen.
+  function _prescribedTodayPlainText(apptId) {
+    var notes = (cachedPatientAppointments || []);
+    var pid = currentPatientId;
+    if (!pid) return '';
+    // Pull scripts back from the DOM block we just rendered to avoid a refetch.
+    var block = document.querySelector('.prescribed-today[data-appt-id="' + apptId + '"]');
+    if (!block) return '';
+    var items = block.querySelectorAll('.prescribed-today-list li');
+    var lines = ['Prescribed today'];
+    items.forEach(function (li) { lines.push('• ' + (li.textContent || '').trim()); });
+    return lines.join('\n');
   }
 
   function renderTimelineScript(script) {
@@ -3551,6 +3764,7 @@
     rebuildPatientFeedbackMap();
     currentRecommendations = null;
     if (prescribe) prescribe.clearCart();
+    resetPrescribeFilters();
     // If there are pending prescribe items from the appointment picker, add them after clearing cart
     if (pendingPrescribeItem && prescribe) {
       var pendingItems = pendingPrescribeItem;
@@ -4746,7 +4960,7 @@
       u.showToast('Failed to compile note: ' + (err.message || 'Unknown error'), 'error');
     }).finally(function () {
       btn.disabled = false;
-      btn.textContent = 'Complete Appointment';
+      btn.textContent = 'Step 1 — Compile final note (AI)';
     });
   }
 
@@ -4758,6 +4972,10 @@
 
     var btn = u.byId('btn-confirm-complete');
     if (btn) { btn.disabled = true; btn.textContent = 'Completing...'; }
+    // Clear any stale inline error from a previous failed attempt (N2). Bar
+    // stays visible so the doctor can retry without re-running the AI compile.
+    var errEl = u.byId('complete-error-msg');
+    if (errEl) { errEl.classList.add('hidden'); errEl.textContent = ''; }
 
     var apptId = currentAppointmentId;
     var patientId = currentPatientId;
@@ -4808,9 +5026,16 @@
       setTimeout(function () { resetWorkspaceAfterCompletion(); }, 1500);
     }).catch(function (err) {
       u.logError('confirmCompleteAppointment/updateAppointment', err);
-      u.showToast('Note saved but failed to update appointment status: ' + (err.message || 'Unknown error'), 'error');
+      // N2: surface failure inline so the doctor can see why and retry. Toast
+      // alone disappears too fast — and silent failure is what caused the
+      // "didn't close on first try" complaint.
+      var inline = u.byId('complete-error-msg');
+      var msg = 'Could not mark complete: ' + (err.message || 'Unknown error') +
+                '. Click "Step 2 — Complete appointment" to retry.';
+      if (inline) { inline.textContent = msg; inline.classList.remove('hidden'); }
+      u.showToast('Failed to complete — see the message in the confirmation bar', 'error');
     }).finally(function () {
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Complete'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Step 2 — Complete appointment'; }
     });
   }
 
@@ -5366,62 +5591,75 @@
     }
   }
 
-  function showSimilarProducts(itemId, anchorEl) {
+  // Open the alternatives picker as an overlay modal (issue #2). The previous
+  // implementation expanded an inline panel inside the prescribe column, which
+  // caused stacked content and layout shifts the doctor described as "messy".
+  // The modal floats above the workspace; closing returns the doctor to exactly
+  // where they were.
+  function showSimilarProducts(itemId /*, anchorEl */) {
     var sourceItem = enrichedItemsCache.find(function (i) { return i.id === itemId; });
     if (!sourceItem || !similar || !prescribe) return;
 
-    // Remove any existing inline similar panel
-    var existing = document.querySelectorAll('.similar-inline');
-    existing.forEach(function (el) { el.remove(); });
+    closeAlternativesModal();
 
-    // If clicking the same product that's already expanded, just close it (toggle)
-    if (anchorEl && anchorEl.dataset.similarOpen === 'true') {
-      anchorEl.dataset.similarOpen = '';
-      return;
-    }
-    // Clear previous open state
-    document.querySelectorAll('[data-similar-open]').forEach(function (el) {
-      el.dataset.similarOpen = '';
-    });
+    var results = similar.findSimilar(sourceItem, enrichedItemsCache, 6);
 
-    var results = similar.findSimilar(sourceItem, enrichedItemsCache, 3);
+    var backdrop = document.createElement('div');
+    backdrop.className = 'alternatives-backdrop';
+    backdrop.id = 'alternatives-backdrop';
 
-    // Create inline panel
-    var panel = document.createElement('div');
-    panel.className = 'similar-inline prescribe-section';
+    var modal = document.createElement('div');
+    modal.className = 'alternatives-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Alternatives');
 
-    var header = '<div class="detail-toolbar">' +
-      '<h3 class="detail-heading">Similar Products</h3>' +
-      '<button class="btn btn-sm btn-ghost btn-close-similar-inline" title="Close">&times;</button>' +
-      '</div>';
-    panel.innerHTML = header + '<div class="similar-inline-list"></div>';
+    modal.innerHTML =
+      '<div class="alternatives-header">' +
+        '<h3 class="alternatives-title">Alternatives to ' + u.escapeHtml(sourceItem.item_name || 'this product') + '</h3>' +
+        '<button class="alternatives-close" id="btn-close-alternatives" type="button" aria-label="Close">&times;</button>' +
+      '</div>' +
+      '<div class="alternatives-body" id="alternatives-body"></div>';
 
-    // Insert right after the clicked element
-    if (anchorEl && anchorEl.parentNode) {
-      anchorEl.parentNode.insertBefore(panel, anchorEl.nextSibling);
-      anchorEl.dataset.similarOpen = 'true';
-    }
+    document.body.appendChild(backdrop);
+    document.body.appendChild(modal);
 
-    // Render similar results into the inline panel
-    var listEl = panel.querySelector('.similar-inline-list');
-    if (listEl) prescribe.renderSimilarProducts(listEl, sourceItem, results);
+    var bodyEl = modal.querySelector('#alternatives-body');
+    if (bodyEl) prescribe.renderSimilarProducts(bodyEl, sourceItem, results);
 
-    // Close button
-    var closeBtn = panel.querySelector('.btn-close-similar-inline');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', function () {
-        panel.remove();
-        if (anchorEl) anchorEl.dataset.similarOpen = '';
-      });
-    }
+    var closeBtn = modal.querySelector('#btn-close-alternatives');
+    if (closeBtn) closeBtn.addEventListener('click', closeAlternativesModal);
+    backdrop.addEventListener('click', closeAlternativesModal);
 
-    // Smooth scroll to make the panel visible
-    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Esc to close
+    document.addEventListener('keydown', _alternativesEscHandler);
+  }
+
+  function _alternativesEscHandler(e) {
+    if (e.key === 'Escape') closeAlternativesModal();
+  }
+
+  function closeAlternativesModal() {
+    var modal = document.querySelector('.alternatives-modal');
+    var backdrop = u.byId('alternatives-backdrop');
+    if (modal) modal.remove();
+    if (backdrop) backdrop.remove();
+    document.removeEventListener('keydown', _alternativesEscHandler);
   }
 
   function refreshPrescribeViews() {
-    // Clean up any open inline similar panels before re-rendering
-    document.querySelectorAll('.similar-inline').forEach(function (el) { el.remove(); });
+    // Re-render the alternatives list in place if the modal is open, so cart
+    // changes (add/remove buttons flipping) reflect immediately.
+    var modal = document.querySelector('.alternatives-modal');
+    if (modal) {
+      var body = modal.querySelector('#alternatives-body');
+      var titleEl = modal.querySelector('.alternatives-title');
+      if (body && titleEl) {
+        // We don't have sourceItem cached on the modal — re-render is safe to skip
+        // here; the cart sidebar updates separately. Future: cache sourceItem on
+        // the modal element so we can fully re-render its alternatives row.
+      }
+    }
 
     // Re-render unified product list to update add/remove buttons
     runProductSearch();
@@ -6781,7 +7019,8 @@
     if (!status) return '';
     var cls = 'chip-default';
     var s = status.toLowerCase();
-    if (s === 'active' || s === 'completed' || s === 'paid' || s === 'approved' || s === 'application approved') cls = 'chip-active';
+    if (s === 'completed') cls = 'chip-completed';
+    else if (s === 'active' || s === 'paid' || s === 'approved' || s === 'application approved') cls = 'chip-active';
     else if (s === 'booked' || s === 'pending' || s === 'pending payment' || s === 'application pending' || s === 'awaiting approval' || s === 'new' || s === 'draft') cls = 'chip-pending';
     else if (s === 'cancelled' || s === 'rejected' || s === 'no show' || s === 'suspended' || s === 'deactivated') cls = 'chip-error';
     else if (s === 'rescheduled' || s === 'consultation booked' || s === 'script issued') cls = 'chip-info';

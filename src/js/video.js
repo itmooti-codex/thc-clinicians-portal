@@ -12,6 +12,12 @@
   var callStartTime = null;   // Date when joined-meeting fired
   var activePatientName = ''; // Patient name for the indicator
   var activePatientId = null; // Patient contact ID
+  // Recording state (issue #8). Auto-starts when the second peer joins; the
+  // doctor can pause/resume from the workspace. We track our intent locally
+  // because Daily's recording-started event is a confirmation, not a source
+  // of truth — we want the UI to react immediately on click.
+  var recordingState = 'idle'; // 'idle' | 'starting' | 'active' | 'paused'
+  var autoStartedRecording = false; // Don't auto-start twice if a peer rejoins
 
   function getAuthHeaders() {
     var token = window.ClinicianAuth ? window.ClinicianAuth.getToken() : null;
@@ -118,6 +124,81 @@
     return div.innerHTML;
   }
 
+  // ── Recording controls (issue #8) ──
+
+  function startRecordingInternal() {
+    if (!callFrame) return;
+    recordingState = 'starting';
+    updateRecordingIndicator();
+    try {
+      callFrame.startRecording();
+    } catch (e) {
+      console.warn('startRecording failed:', e);
+      recordingState = 'idle';
+      updateRecordingIndicator();
+    }
+  }
+
+  function pauseRecording() {
+    if (!callFrame || recordingState !== 'active') return;
+    try {
+      callFrame.stopRecording();
+    } catch (e) {
+      console.warn('stopRecording (pause) failed:', e);
+    }
+  }
+
+  function resumeRecording() {
+    if (!callFrame || recordingState !== 'paused') return;
+    startRecordingInternal();
+  }
+
+  function updateRecordingIndicator() {
+    var btn = document.getElementById('btn-toggle-recording');
+    var dot = document.getElementById('recording-indicator');
+    if (dot) {
+      dot.classList.remove('rec-active', 'rec-paused', 'rec-starting');
+      if (recordingState === 'active') {
+        dot.classList.add('rec-active');
+        dot.classList.remove('hidden');
+        dot.textContent = '● Recording';
+      } else if (recordingState === 'paused') {
+        dot.classList.add('rec-paused');
+        dot.classList.remove('hidden');
+        dot.textContent = '▌▌ Paused';
+      } else if (recordingState === 'starting') {
+        dot.classList.add('rec-starting');
+        dot.classList.remove('hidden');
+        dot.textContent = '… Starting recording';
+      } else {
+        dot.classList.add('hidden');
+        dot.textContent = '';
+      }
+    }
+    if (btn) {
+      if (recordingState === 'active') {
+        btn.textContent = 'Pause';
+        btn.classList.remove('hidden');
+        btn.disabled = false;
+      } else if (recordingState === 'paused') {
+        btn.textContent = 'Resume';
+        btn.classList.remove('hidden');
+        btn.disabled = false;
+      } else if (recordingState === 'starting') {
+        btn.textContent = 'Starting…';
+        btn.classList.remove('hidden');
+        btn.disabled = true;
+      } else {
+        btn.classList.add('hidden');
+      }
+    }
+  }
+
+  function toggleRecording() {
+    if (recordingState === 'active') pauseRecording();
+    else if (recordingState === 'paused') resumeRecording();
+  }
+
   // ── Daily JS SDK call management ──
 
   function createCallFrame() {
@@ -210,7 +291,44 @@
       var name = event.participant.user_name || 'Participant';
       if (!event.participant.local) {
         if (window.AppUtils) window.AppUtils.showToast(name + ' joined the consultation', 'info');
+        // N7 Phase 1: if the doctor isn't in the workspace right now, show a
+        // persistent banner so they don't miss this while triaging elsewhere.
+        // The helper itself decides whether the workspace is visible — we
+        // always call it.
+        if (window._showPatientWaitingBanner) {
+          try { window._showPatientWaitingBanner(name); }
+          catch (e) { /* never let UI errors break the call */ }
+        }
+        // Issue #8: auto-start recording the moment the second peer arrives, so
+        // the doctor can't forget to press record. Idempotent — a rejoining
+        // participant won't restart it.
+        if (!autoStartedRecording) {
+          autoStartedRecording = true;
+          startRecordingInternal();
+        }
       }
+    });
+
+    frame.on('recording-started', function () {
+      recordingState = 'active';
+      updateRecordingIndicator();
+    });
+
+    frame.on('recording-stopped', function () {
+      // We treat 'stopped' as 'paused' from the doctor's perspective — the call
+      // is still live, only the recording segment ended. A fresh segment opens
+      // on the next start.
+      if (recordingState !== 'idle') {
+        recordingState = 'paused';
+        updateRecordingIndicator();
+      }
+    });
+
+    frame.on('recording-error', function (event) {
+      console.warn('Daily recording-error:', event);
+      recordingState = 'idle';
+      updateRecordingIndicator();
+      if (window.AppUtils) window.AppUtils.showToast('Recording error: ' + (event.errorMsg || 'unknown'), 'error');
     });
 
     frame.on('participant-left', function (event) {
@@ -332,6 +450,13 @@
 
     videoExpanded = false;
     if (callArea) callArea.classList.remove('video-expanded');
+
+    // Reset recording state for next call.
+    recordingState = 'idle';
+    autoStartedRecording = false;
+    updateRecordingIndicator();
+    // N7: dismiss any leftover waiting-patient banner — the call is over.
+    if (window._hidePatientWaitingBanner) window._hidePatientWaitingBanner();
   }
 
   function toggleVideoSize() {
@@ -480,6 +605,7 @@
     reattach: reattach,
     getActiveCallInfo: getActiveCallInfo,
     toggleSize: toggleVideoSize,
+    toggleRecording: toggleRecording,
     isActive: function () { return !!activeCall; },
     getTranscriptText: getTranscriptText,
   };
