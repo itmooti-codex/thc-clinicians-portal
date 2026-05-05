@@ -64,6 +64,144 @@
     setAll: function (prefs) { for (var k in prefs) doctorPreferences[k] = prefs[k]; },
   };
 
+  // ── Open Appointments tracker ──────────────────────────────
+  // Replaces the old confirm() leave-warning. Tracks appointments the doctor
+  // has opened the workspace for but not yet completed, persists in
+  // localStorage scoped per-clinician, and surfaces them as a slim chip bar
+  // at the top of the dashboard so the doctor can resume in one tap.
+  var OPEN_APPTS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // prune entries older than 7 days
+
+  function _openApptsKey() {
+    var cid = window.AppConfig && window.AppConfig.CONTACT_ID;
+    return 'thc-open-appts-' + (cid || 'anon');
+  }
+  function _openApptsLoad() {
+    try { return JSON.parse(localStorage.getItem(_openApptsKey()) || '{}') || {}; } catch (e) { return {}; }
+  }
+  function _openApptsSave(state) {
+    try { localStorage.setItem(_openApptsKey(), JSON.stringify(state)); } catch (e) { /* quota / private mode — silently ignore */ }
+  }
+  function _openApptsPrune(state) {
+    var now = Date.now();
+    var changed = false;
+    Object.keys(state).forEach(function (id) {
+      var entry = state[id];
+      if (!entry || (now - (entry.lastEditedAt || 0)) > OPEN_APPTS_TTL_MS) {
+        delete state[id];
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  window.OpenAppointments = {
+    /** Mark an appointment as opened/edited. patient is an object from allPatients (or null). */
+    mark: function (apptId, patientId, patient) {
+      if (!apptId) return;
+      var state = _openApptsLoad();
+      var existing = state[apptId] || {};
+      var first = (patient && patient.first_name) || existing.firstName || '';
+      var last = (patient && patient.last_name) || existing.lastName || '';
+      state[apptId] = {
+        appointmentId: Number(apptId),
+        patientId: patientId != null ? Number(patientId) : (existing.patientId || null),
+        firstName: first,
+        lastName: last,
+        openedAt: existing.openedAt || Date.now(),
+        lastEditedAt: Date.now(),
+      };
+      _openApptsPrune(state);
+      _openApptsSave(state);
+      renderOpenApptBar();
+    },
+    /** Remove an appointment from the tracker (called on completion or dismiss). */
+    remove: function (apptId) {
+      if (!apptId) return;
+      var state = _openApptsLoad();
+      if (state[apptId]) {
+        delete state[apptId];
+        _openApptsSave(state);
+        renderOpenApptBar();
+      }
+    },
+    /** Returns array of open appointment entries, most-recently-edited first. */
+    list: function () {
+      var state = _openApptsLoad();
+      _openApptsPrune(state);
+      return Object.keys(state).map(function (k) { return state[k]; })
+        .sort(function (a, b) { return (b.lastEditedAt || 0) - (a.lastEditedAt || 0); });
+    },
+    /** Drop tracked entries whose Appointment.status is now Completed/Cancelled in cached data. */
+    syncWithAppointments: function (appointments) {
+      if (!appointments || !appointments.length) return;
+      var state = _openApptsLoad();
+      var changed = false;
+      appointments.forEach(function (a) {
+        var st = (a.status || '').toLowerCase();
+        if (state[a.id] && (st === 'completed' || st === 'cancelled' || st === 'patient didn’t show')) {
+          delete state[a.id];
+          changed = true;
+        }
+      });
+      if (changed) {
+        _openApptsSave(state);
+        renderOpenApptBar();
+      }
+    },
+  };
+
+  /** Render the persistent "open appointments" reminder bar. Hidden when in
+   * appointment-workspace view (already there) or when there are no entries. */
+  function renderOpenApptBar() {
+    var bar = u && u.byId ? u.byId('open-appt-bar') : document.getElementById('open-appt-bar');
+    if (!bar) return;
+    var inWorkspace = !u.byId('view-appointment-workspace').classList.contains('hidden');
+    var entries = window.OpenAppointments.list();
+    if (inWorkspace || entries.length === 0) {
+      bar.classList.add('hidden');
+      bar.innerHTML = '';
+      return;
+    }
+    var label = entries.length === 1 ? '1 open appointment' : entries.length + ' open appointments';
+    var chips = entries.map(function (e) {
+      var name = ((e.firstName || '') + ' ' + (e.lastName || '')).trim() || ('Patient #' + e.patientId);
+      return (
+        '<button class="open-appt-chip" type="button" data-appt-id="' + e.appointmentId + '" data-patient-id="' + (e.patientId || '') + '">' +
+          '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>' +
+          '<span class="open-appt-chip-name">' + u.escapeHtml(name) + '</span>' +
+          '<span class="open-appt-chip-dismiss" data-dismiss="' + e.appointmentId + '" title="Dismiss">' +
+            '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+          '</span>' +
+        '</button>'
+      );
+    }).join('');
+    bar.innerHTML =
+      '<div class="open-appt-bar-inner">' +
+        '<span class="open-appt-bar-label">' +
+          '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/></svg>' +
+          u.escapeHtml(label) + ' — tap to resume' +
+        '</span>' +
+        '<div class="open-appt-bar-chips">' + chips + '</div>' +
+      '</div>';
+    bar.classList.remove('hidden');
+    // Bind chip clicks (delegated)
+    bar.querySelectorAll('.open-appt-chip').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        var dismissEl = ev.target.closest('[data-dismiss]');
+        if (dismissEl) {
+          ev.stopPropagation();
+          window.OpenAppointments.remove(Number(dismissEl.dataset.dismiss));
+          return;
+        }
+        var apptId = Number(btn.dataset.apptId);
+        var patientId = Number(btn.dataset.patientId) || null;
+        if (apptId && typeof openAppointmentWorkspace === 'function') {
+          openAppointmentWorkspace(apptId, patientId);
+        }
+      });
+    });
+  }
+
   // ── Initialization ─────────────────────────────────────────
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -225,6 +363,9 @@
       data.fetchAppointments({ doctor_id: doctorId, limit: 200 }).then(function (appts) {
         cachedDoctorAppointments = appts || [];
         loadTodaySchedule();
+        // Auto-prune any tracked appointments that have since been completed.
+        if (window.OpenAppointments) window.OpenAppointments.syncWithAppointments(cachedDoctorAppointments);
+        if (typeof renderOpenApptBar === 'function') renderOpenApptBar();
       }).catch(function () {});
     }
   }
@@ -1578,30 +1719,19 @@
   }
 
   function showView(view) {
-    // 2.4 — Warn the doctor before leaving an active appointment workspace
-    // without completing. Skips the warning if leaving was triggered by the
-    // completion flow (which sets _suppressLeaveWarning) and if the user is
-    // simply moving between dashboard tabs without an active appointment.
+    // Doctors objected to a confirm() that fired every time they navigated
+    // away from a workspace mid-consult (5+ times per appointment). Replaced
+    // with a persistent "Open appointments" reminder bar (renderOpenApptBar),
+    // shown on dashboard views so they can resume any appointment in one tap.
     var leavingActiveAppt = (
       view !== 'appointment-workspace' &&
       currentAppointmentId &&
-      !u.byId('view-appointment-workspace').classList.contains('hidden') &&
-      !window._suppressLeaveWarning
+      !u.byId('view-appointment-workspace').classList.contains('hidden')
     );
-    if (leavingActiveAppt) {
+    if (leavingActiveAppt && window.OpenAppointments) {
+      // Make sure the appointment is tracked so the reminder bar shows it.
       var pt = allPatients.find(function (p) { return p.id == currentPatientId; });
-      var name = pt ? ((pt.first_name || '') + ' ' + (pt.last_name || '')).trim() : 'this patient';
-      var ok = window.confirm(
-        "Don't forget to complete your appointment for " + (name || 'this patient') + ".\n\n" +
-        'OK = Stay and complete now\nCancel = Leave anyway'
-      );
-      if (ok) {
-        // Scroll to the Complete button so the doctor sees it.
-        var completeBtn = u.byId('btn-complete-appointment');
-        if (completeBtn) completeBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return; // abort navigation
-      }
-      // Continue navigating away.
+      window.OpenAppointments.mark(currentAppointmentId, currentPatientId, pt);
     }
     _saveViewScroll(view);
     u.$$('.view').forEach(function (v) { v.classList.add('hidden'); });
@@ -1639,6 +1769,9 @@
         btn.classList.toggle('active', btn.dataset.tab === view);
       });
     }
+
+    // Refresh the open-appointments reminder bar (auto-hides in workspace).
+    if (typeof renderOpenApptBar === 'function') renderOpenApptBar();
   }
 
   function switchDetailTab(tab) {
@@ -3762,6 +3895,12 @@
     currentPatientId = patientId;
     workspaceNoteId = null;
     currentPatientIntake = null;
+    // Track this appointment as "open" so it surfaces in the reminder bar
+    // until the doctor explicitly completes (or dismisses) it.
+    if (window.OpenAppointments) {
+      var _pt = allPatients.find(function (p) { return p.id == patientId; });
+      window.OpenAppointments.mark(appointmentId, patientId, _pt);
+    }
     rebuildPatientFeedbackMap();
     currentRecommendations = null;
     if (prescribe) prescribe.clearCart();
@@ -5064,6 +5203,11 @@
   // Clean reset after appointment completion — clears workspace state and
   // returns the doctor to the appointments dashboard.
   function resetWorkspaceAfterCompletion() {
+    // Drop the just-completed appointment from the open-appointments tracker
+    // before clearing currentAppointmentId.
+    if (window.OpenAppointments && currentAppointmentId) {
+      window.OpenAppointments.remove(currentAppointmentId);
+    }
     currentAppointmentId = null;
     currentAppointmentType = null;
     currentPatientId = null;

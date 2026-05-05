@@ -334,6 +334,83 @@ h1, h2, h3, h4 {
   display: inline-block;
 }
 
+/* ── Open Appointments reminder bar ────────────────────────────
+   Replaces the old confirm() leave-warning. Sits between the header
+   and the main tab bar. Hidden on appointment-workspace view (the
+   doctor is already there) and when there are no tracked entries. */
+.open-appt-bar {
+  background: linear-gradient(0deg, rgba(32,192,192,0.04), rgba(32,192,192,0.04)), var(--brand-white);
+  border: 1px solid rgba(32, 192, 192, 0.25);
+  border-left: 3px solid var(--brand-primary-dark);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 4px 0 12px;
+}
+.open-appt-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.open-appt-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-primary-dark);
+  letter-spacing: 0.02em;
+}
+.open-appt-bar-label svg {
+  flex: 0 0 auto;
+}
+.open-appt-bar-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.open-appt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  background: var(--brand-white);
+  border: 1px solid var(--brand-border);
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--brand-text);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, transform 0.05s;
+}
+.open-appt-chip:hover {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary-light);
+}
+.open-appt-chip:active {
+  transform: translateY(1px);
+}
+.open-appt-chip svg { flex: 0 0 auto; color: var(--brand-primary-dark); }
+.open-appt-chip-name { white-space: nowrap; }
+.open-appt-chip-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--brand-text-muted);
+  background: transparent;
+  margin-left: 2px;
+}
+.open-appt-chip-dismiss:hover {
+  color: var(--brand-error);
+  background: var(--brand-error-bg);
+}
+
 /* ── Tab Navigation ─────────────────────────────────────────── */
 .tab-bar {
   display: flex;
