@@ -143,15 +143,16 @@
         var email = u.byId('login-email').value.trim();
         if (!email) return;
         var btn = u.byId('login-submit');
+        var labelEl = btn.querySelector('.login-btn-label');
         btn.disabled = true;
-        btn.textContent = 'Sending...';
+        if (labelEl) labelEl.textContent = 'Sending...';
         window.ClinicianAuth.requestMagicLink(email).then(function () {
           if (msgEl) {
-            msgEl.textContent = 'Check your email for a magic link to sign in.';
+            msgEl.textContent = "Check your email — we've sent a sign-in link to " + email + '.';
             msgEl.className = 'login-message login-message-success';
             msgEl.classList.remove('hidden');
           }
-          btn.textContent = 'Link Sent';
+          if (labelEl) labelEl.textContent = 'Link sent';
         }).catch(function (err) {
           if (msgEl) {
             msgEl.textContent = err.message || 'Something went wrong. Please try again.';
@@ -159,7 +160,7 @@
             msgEl.classList.remove('hidden');
           }
           btn.disabled = false;
-          btn.textContent = 'Send Magic Link';
+          if (labelEl) labelEl.textContent = 'Send sign-in link';
         });
       });
     }
