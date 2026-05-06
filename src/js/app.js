@@ -2929,9 +2929,13 @@
         // Re-render cards and calendar with resolved names
         renderDoctorAppointmentsList(appts, list, empty);
         if (appointmentsCalendarInstance) appointmentsCalendarInstance.refetchEvents();
-        // Fill in intake ✓ / warning once that batch resolves.
+        // Fill in intake ✓ / warning once that batch resolves — both the
+        // card list and the calendar list-view event rows depend on the
+        // OpenAppointments + intake Sets that loadIntakeStatusForPatients
+        // populates.
         intakeFetch.then(function () {
           renderDoctorAppointmentsList(appts, list, empty);
+          if (appointmentsCalendarInstance) appointmentsCalendarInstance.refetchEvents();
         });
       });
 
@@ -6956,6 +6960,30 @@
         if (appt && appt.id && appt.patient_id) {
           openAppointmentWorkspace(Number(appt.id), Number(appt.patient_id));
         }
+      },
+      // List view — render the same workflow chip + intake indicator the
+      // Today's Schedule cards use, so the My Appointments list visually
+      // matches the Today screen instead of FullCalendar's default
+      // "Patient Name – Type [Paid]" string. Grid views (week/month/day)
+      // fall through to FC's default title rendering — out of scope here.
+      eventContent: function (arg) {
+        if (arg.view.type !== 'list') return null;
+        var appt = arg.event.extendedProps.appt;
+        if (!appt) return null;
+        var patientName = getPatientName(appt.patient_id) || 'Patient';
+        var workflowChip = getDoctorWorkflowChip(appt);
+        var intake = getIntakeIndicator(appt);
+        return {
+          html:
+            '<div class="fc-appt-list-row">' +
+              '<div class="fc-appt-list-main">' +
+                '<span class="fc-appt-list-name">' + u.escapeHtml(patientName) + intake.tick + '</span>' +
+                '<span class="fc-appt-list-type">' + u.escapeHtml(appt.type || 'Appointment') + '</span>' +
+              '</div>' +
+              '<div class="fc-appt-list-side">' + workflowChip + '</div>' +
+              (intake.warning ? '<div class="fc-appt-list-warn">' + intake.warning + '</div>' : '') +
+            '</div>',
+        };
       },
       events: function (info, successCallback) {
         successCallback(appointmentsToCalendarEvents(cachedDoctorAppointments));

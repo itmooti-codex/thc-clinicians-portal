@@ -733,6 +733,46 @@ h1, h2, h3, h4 {
 }
 .intake-warn svg { flex: 0 0 auto; }
 
+/* My Appointments — FullCalendar list-view rows styled to match the
+   Today's Schedule cards. Sits inside FC's title cell, populated by the
+   eventContent callback in initAppointmentsCalendar. */
+.fc-appt-list-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 0;
+}
+.fc-appt-list-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+.fc-appt-list-name {
+  font-weight: 700;
+  color: var(--brand-text);
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+}
+.fc-appt-list-type {
+  color: var(--brand-text-muted);
+  font-size: 13px;
+}
+.fc-appt-list-side {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+.fc-appt-list-warn {
+  flex-basis: 100%;
+}
+.fc-appt-list-warn .intake-warn { margin-top: 2px; }
+
 /* ── Intake Form (read-only tab) ─────────────────────────── */
 .intake-readonly { display: flex; flex-direction: column; gap: 14px; }
 
