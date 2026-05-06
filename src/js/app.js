@@ -6961,28 +6961,45 @@
           openAppointmentWorkspace(Number(appt.id), Number(appt.patient_id));
         }
       },
-      // List view — render the same workflow chip + intake indicator the
-      // Today's Schedule cards use, so the My Appointments list visually
-      // matches the Today screen instead of FullCalendar's default
-      // "Patient Name – Type [Paid]" string. Grid views (week/month/day)
-      // fall through to FC's default title rendering — out of scope here.
+      // Custom content for every event so list view matches the Today's
+      // Schedule cards (workflow chip + intake indicator) while grid views
+      // keep a simple, readable title. Returning null in FC v6 was unreliable
+      // for custom view names like 'listAll' — empty rows resulted. Always
+      // returning HTML (the same pattern the timeslots calendar uses at
+      // initTimeslotsCalendar) is the safe path.
       eventContent: function (arg) {
-        if (arg.view.type !== 'list') return null;
         var appt = arg.event.extendedProps.appt;
-        if (!appt) return null;
+        if (!appt) return null; // FC's own default fallback for missing data
         var patientName = getPatientName(appt.patient_id) || 'Patient';
-        var workflowChip = getDoctorWorkflowChip(appt);
-        var intake = getIntakeIndicator(appt);
+        var viewType = String(arg.view.type || '').toLowerCase();
+        var isListView = viewType.indexOf('list') >= 0;
+
+        if (isListView) {
+          var workflowChip = (typeof getDoctorWorkflowChip === 'function')
+            ? getDoctorWorkflowChip(appt)
+            : '';
+          var intake = (typeof getIntakeIndicator === 'function')
+            ? getIntakeIndicator(appt)
+            : { tick: '', warning: '' };
+          return {
+            html:
+              '<div class="fc-appt-list-row">' +
+                '<div class="fc-appt-list-main">' +
+                  '<span class="fc-appt-list-name">' + u.escapeHtml(patientName) + (intake.tick || '') + '</span>' +
+                  '<span class="fc-appt-list-type">' + u.escapeHtml(appt.type || 'Appointment') + '</span>' +
+                '</div>' +
+                '<div class="fc-appt-list-side">' + (workflowChip || '') + '</div>' +
+                (intake.warning ? '<div class="fc-appt-list-warn">' + intake.warning + '</div>' : '') +
+              '</div>',
+          };
+        }
+
+        // Grid views (timeGridWeek, timeGridDay, dayGridMonth) — simple title
+        // matches the previous baked-in title format so the calendar grid
+        // events look exactly the same as before.
+        var statusLabel = appt.status ? ' [' + appt.status + ']' : '';
         return {
-          html:
-            '<div class="fc-appt-list-row">' +
-              '<div class="fc-appt-list-main">' +
-                '<span class="fc-appt-list-name">' + u.escapeHtml(patientName) + intake.tick + '</span>' +
-                '<span class="fc-appt-list-type">' + u.escapeHtml(appt.type || 'Appointment') + '</span>' +
-              '</div>' +
-              '<div class="fc-appt-list-side">' + workflowChip + '</div>' +
-              (intake.warning ? '<div class="fc-appt-list-warn">' + intake.warning + '</div>' : '') +
-            '</div>',
+          html: u.escapeHtml(patientName + ' – ' + (appt.type || 'Appointment') + statusLabel),
         };
       },
       events: function (info, successCallback) {
