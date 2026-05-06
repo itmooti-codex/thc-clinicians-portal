@@ -145,6 +145,29 @@
   }
 
   /**
+   * Batch-fetch multiple contacts by ID. Used by the appointment list views
+   * to populate patient names in one round-trip instead of firing per-patient
+   * fetchPatientById calls (which used to be capped at 20, causing rows to
+   * fall back to "Patient #ID" once a doctor scrolled into older months).
+   * Same _OPERATOR_: in pattern as fetchPatientsWithIntake / shop.ts.
+   */
+  function fetchPatientsByIds(ids) {
+    if (!ids || !ids.length) return Promise.resolve([]);
+    var arr = ids.map(Number).filter(function (n) { return !isNaN(n); });
+    if (!arr.length) return Promise.resolve([]);
+    var q = 'query getContactsByIds($ids: [IntScalar!]!) { getContacts(' +
+      'query: [{ where: { _OPERATOR_: in, id: $ids } }], limit: ' + arr.length +
+      ') { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code } }';
+    return fetchGraphQL(q, { ids: arr }).then(function (data) {
+      var list = data && data.getContacts;
+      return Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
+    }).catch(function (err) {
+      console.warn('fetchPatientsByIds failed:', err);
+      return [];
+    });
+  }
+
+  /**
    * Batch-check which of the given patient IDs have at least one Intake Form
    * ClinicalNote on file. Returns a Set of patient IDs that DO. Used by the
    * Today / My Appointments cards to render the ✓ tick vs the "intake not
@@ -1215,6 +1238,7 @@
     fetchPatients: fetchPatients,
     searchPatients: searchPatients,
     fetchPatientById: fetchPatientById,
+    fetchPatientsByIds: fetchPatientsByIds,
     fetchAppointments: fetchAppointments,
     fetchClinicalNotes: fetchClinicalNotes,
     fetchScripts: fetchScripts,

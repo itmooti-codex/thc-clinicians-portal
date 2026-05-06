@@ -2908,24 +2908,27 @@
       cachedDoctorAppointments = appts || [];
       appts.sort(function (a, b) { return (b.appointment_time || 0) - (a.appointment_time || 0); });
 
-      // Batch-fetch patient names for all appointments
-      var patientIds = [];
+      // Batch-fetch patient names for all appointments. Previously did
+      // patientIds.slice(0, 20) per-patient parallel fetches — that capped
+      // names to the first 20 missing patients, so as a doctor scrolled
+      // back through past months the rows fell back to "Patient #ID".
+      // Replaced with a single _OPERATOR_: in batch via fetchPatientsByIds.
+      var missingIds = [];
       appts.forEach(function (a) {
-        if (a.patient_id && !findPatient(a.patient_id)) patientIds.push(a.patient_id);
+        if (a.patient_id && !findPatient(a.patient_id) && missingIds.indexOf(a.patient_id) === -1) {
+          missingIds.push(a.patient_id);
+        }
       });
-      // Deduplicate
-      patientIds = patientIds.filter(function (id, i) { return patientIds.indexOf(id) === i; });
-      // Fetch missing patients in parallel (max 10 at a time)
-      var fetchPromises = patientIds.slice(0, 20).map(function (pid) {
-        return data.fetchPatientById(pid).then(function (p) {
-          if (p) allPatients.push(p);
-        }).catch(function () {});
-      });
+      var nameFetch = data.fetchPatientsByIds(missingIds).then(function (patients) {
+        (patients || []).forEach(function (p) {
+          if (p && !allPatients.some(function (ap) { return ap.id == p.id; })) allPatients.push(p);
+        });
+      }).catch(function () {});
       // Run intake-status batch fetch alongside (uses every appt's patient_id,
       // not just the names-missing subset — we need intake info for all rows).
       var intakeFetch = loadIntakeStatusForPatients(appts.map(function (a) { return a.patient_id; }));
 
-      Promise.all(fetchPromises).then(function () {
+      nameFetch.then(function () {
         // Re-render cards and calendar with resolved names
         renderDoctorAppointmentsList(appts, list, empty);
         if (appointmentsCalendarInstance) appointmentsCalendarInstance.refetchEvents();
