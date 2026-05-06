@@ -124,6 +124,12 @@
         renderOpenApptBar();
       }
     },
+    /** Returns true if the appointment is currently tracked as open. */
+    has: function (apptId) {
+      if (apptId == null) return false;
+      var state = _openApptsLoad();
+      return Object.prototype.hasOwnProperty.call(state, apptId);
+    },
     /** Returns array of open appointment entries, most-recently-edited first. */
     list: function () {
       var state = _openApptsLoad();
@@ -2962,7 +2968,7 @@
   function renderDoctorAppointmentCard(appt) {
     var dateStr = u.formatDate(appt.appointment_time);
     var timeStr = appt.appointment_time ? formatTime(appt.appointment_time) : '';
-    var chip = getStatusChip(appt.status || '');
+    var chip = getDoctorWorkflowChip(appt);
     var patientName = getPatientName(appt.patient_id);
     var statusLower = (appt.status || '').toLowerCase();
     var canEdit = statusLower !== 'completed' && statusLower !== 'cancelled';
@@ -3087,7 +3093,7 @@
 
   function renderTodayCard(appt, nowUnix) {
     var timeStr = appt.appointment_time ? formatTime(appt.appointment_time) : '';
-    var chip = getStatusChip(appt.status || '');
+    var chip = getDoctorWorkflowChip(appt);
     var patientName = getPatientName(appt.patient_id);
     var isNext = appt.appointment_time && appt.appointment_time >= nowUnix;
     var nextClass = isNext ? ' today-card-next' : ' today-card-past';
@@ -7170,6 +7176,30 @@
     else if (s === 'cancelled' || s === 'rejected' || s === 'no show' || s === 'suspended' || s === 'deactivated') cls = 'chip-error';
     else if (s === 'rescheduled' || s === 'consultation booked' || s === 'script issued') cls = 'chip-info';
     return '<span class="chip ' + cls + '">' + u.escapeHtml(status) + '</span>';
+  }
+
+  // Doctor-workflow chip used on the My Appointments list and Today's Schedule.
+  // Doctors objected to seeing payment-state ([Paid], [Booked]) on their task
+  // lists — they care about THEIR workflow per appointment: To do / Open /
+  // Completed (and "Awaiting intake" while the patient hasn't filled their
+  // form). Cancelled/no-show/rescheduled fall back to getStatusChip — those
+  // are usually filtered upstream but we surface real state if they sneak in.
+  function getDoctorWorkflowChip(appt) {
+    if (!appt) return '';
+    var s = (appt.status || '').toLowerCase().trim();
+    if (s === 'cancelled' || s === 'rescheduled' || s === 'no show') {
+      return getStatusChip(appt.status);
+    }
+    if (s === 'completed') {
+      return '<span class="chip chip-completed">Completed</span>';
+    }
+    if (s === 'pending intake form') {
+      return '<span class="chip chip-pending-intake">Awaiting intake</span>';
+    }
+    if (window.OpenAppointments && window.OpenAppointments.has(appt.id)) {
+      return '<span class="chip chip-open">Open</span>';
+    }
+    return '<span class="chip chip-todo">To do</span>';
   }
 
   function getScriptStatusChip(status) {

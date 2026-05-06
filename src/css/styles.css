@@ -704,6 +704,11 @@ h1, h2, h3, h4 {
 /* Patient hasn't completed intake — appointment is provisional until they do. */
 .chip-pending-intake { background: #ffedd5; color: #9a3412; border: 1px dashed #f97316; }
 
+/* Doctor-workflow chips (My Appointments / Today's Schedule) — replace
+   payment-state chips on doctor task lists. chip-completed reused as-is. */
+.chip-todo { background: #f1f5f9; color: #475569; }
+.chip-open { background: var(--brand-primary-light); color: var(--brand-primary-dark); border: 1px solid rgba(32,192,192,0.35); }
+
 /* ── Intake Form (read-only tab) ─────────────────────────── */
 .intake-readonly { display: flex; flex-direction: column; gap: 14px; }
 
