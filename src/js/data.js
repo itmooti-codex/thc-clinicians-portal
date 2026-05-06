@@ -136,13 +136,45 @@
 
   /** Fetch a single contact by ID. */
   function fetchPatientById(id) {
-    // application_status is read by Today's Schedule cards to flag patients who
-    // haven't completed their intake form yet — see getIntakeStatusBadge in app.js.
-    var q = 'query getContactById($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code application_status } }';
+    var q = 'query getContactById($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code } }';
     return fetchGraphQL(q, { id: Number(id) }).then(function (data) {
       var list = data && data.getContacts;
       var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
       return arr.length ? arr[0] : null;
+    });
+  }
+
+  /**
+   * Batch-check which of the given patient IDs have at least one Intake Form
+   * ClinicalNote on file. Returns a Set of patient IDs that DO. Used by the
+   * Today / My Appointments cards to render the ✓ tick vs the "intake not
+   * completed" warning.
+   *
+   * Uses _OPERATOR_: in (same pattern as shop.ts) so one query covers the
+   * whole list instead of N parallel fetches.
+   *
+   * NOTE: Filters on the canonical patient_id FK rather than the denormalized
+   * Latest_Intake_Form_for_Patient_id pointer — the same gotcha called out in
+   * fetchLatestIntakeForm: that pointer isn't always populated.
+   */
+  function fetchPatientsWithIntake(patientIds) {
+    if (!patientIds || !patientIds.length) return Promise.resolve(new Set());
+    var ids = patientIds.map(Number).filter(function (n) { return !isNaN(n); });
+    if (!ids.length) return Promise.resolve(new Set());
+    var q = 'query batchIntakes($pids: [IntScalar!]!) { ' +
+      'getClinicalNotes(query: [' +
+        '{ where: { _OPERATOR_: in, patient_id: $pids } }, ' +
+        '{ andWhere: { _OPERATOR_: eq, Note_Type: "Intake Form" } }' +
+      '], limit: 1000) { id patient_id } }';
+    return fetchGraphQL(q, { pids: ids }).then(function (data) {
+      var list = data && data.getClinicalNotes;
+      var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];
+      var set = new Set();
+      arr.forEach(function (n) { if (n && n.patient_id != null) set.add(Number(n.patient_id)); });
+      return set;
+    }).catch(function (err) {
+      console.warn('fetchPatientsWithIntake failed:', err);
+      return new Set();
     });
   }
 
@@ -1191,6 +1223,7 @@
     fetchItemById: fetchItemById,
     fetchPatientIntake: fetchPatientIntake,
     fetchLatestIntakeForm: fetchLatestIntakeForm,
+    fetchPatientsWithIntake: fetchPatientsWithIntake,
     updatePatientIntake: updatePatientIntake,
     updatePatientContact: updatePatientContact,
     updateLatestIntakeForm: updateLatestIntakeForm,

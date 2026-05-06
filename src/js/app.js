@@ -2921,10 +2921,18 @@
           if (p) allPatients.push(p);
         }).catch(function () {});
       });
+      // Run intake-status batch fetch alongside (uses every appt's patient_id,
+      // not just the names-missing subset — we need intake info for all rows).
+      var intakeFetch = loadIntakeStatusForPatients(appts.map(function (a) { return a.patient_id; }));
+
       Promise.all(fetchPromises).then(function () {
         // Re-render cards and calendar with resolved names
         renderDoctorAppointmentsList(appts, list, empty);
         if (appointmentsCalendarInstance) appointmentsCalendarInstance.refetchEvents();
+        // Fill in intake ✓ / warning once that batch resolves.
+        intakeFetch.then(function () {
+          renderDoctorAppointmentsList(appts, list, empty);
+        });
       });
 
       // Initial render (may have "Patient #ID" until batch fetch completes)
@@ -3087,35 +3095,64 @@
         if (p && !allPatients.some(function (ap) { return ap.id == p.id; })) allPatients.push(p);
       }).catch(function () {});
     });
+    // Run intake-status batch in parallel with the patient-name fetches.
+    var intakeFetch = loadIntakeStatusForPatients(patientIds);
 
     Promise.all(fetches).then(function () {
       list.innerHTML = todayAppts.map(function (appt) {
         return renderTodayCard(appt, nowUnix);
       }).join('');
+      // Re-render once intake status resolves so the ✓ / warning badges fill in.
+      intakeFetch.then(function () {
+        list.innerHTML = todayAppts.map(function (appt) {
+          return renderTodayCard(appt, nowUnix);
+        }).join('');
+      });
     });
   }
 
-  // Contact.application_status values that mean "intake form has been submitted".
-  // The patient portal flips application_status as part of the same backend
-  // transaction that creates the Intake Form ClinicalNote, so checking this
-  // single field stays consistent with the patient-facing app. Anything not in
-  // this set is treated as "incomplete" so unknown / pre-intake values
-  // fail-safe to a visible warning rather than silently passing.
-  var INTAKE_COMPLETED_STATUSES = [
-    'Intake Form Completed',
-    'Initial Consultation Booked',
-    'Initial Consultation Paid',
-    'Item Purchased',
-    'Script Uploaded',
-    'External Processing $99',
-  ];
+  // ── Intake-form completion tracking ────────────────────────
+  // Authoritative signal: existence of an Intake Form ClinicalNote with
+  // patient_id matching. application_status was the wrong proxy — patients
+  // can advance to "Initial Consultation Booked"/"Paid" without ever filling
+  // the intake (booking and paying are separate steps from the form), so
+  // doctors saw a false ✓ on patients with empty intake records.
+  // patientsWithIntake — IDs we've confirmed have an intake on file.
+  // patientsCheckedForIntake — IDs we've fetched the answer for. Splitting
+  // the two lets getIntakeStatus distinguish "not yet checked" (return null,
+  // render nothing) from "checked, no intake" (render the warning).
+  var patientsWithIntake = new Set();
+  var patientsCheckedForIntake = new Set();
 
-  /** Returns 'complete' | 'incomplete' | null (null = patient not loaded yet). */
+  /** Returns 'complete' | 'incomplete' | null (null = not yet checked). */
   function getIntakeStatus(patientId) {
-    var patient = allPatients.find(function (p) { return p.id == patientId; });
-    if (!patient) return null;
-    var s = (patient.application_status || '').trim();
-    return INTAKE_COMPLETED_STATUSES.indexOf(s) >= 0 ? 'complete' : 'incomplete';
+    if (patientId == null) return null;
+    var pid = Number(patientId);
+    if (!patientsCheckedForIntake.has(pid)) return null;
+    return patientsWithIntake.has(pid) ? 'complete' : 'incomplete';
+  }
+
+  /** Batch-fetch intake status for the given patient IDs (skips IDs already
+   * checked) and resolves once the cache is populated. Caller is responsible
+   * for re-rendering the affected list afterwards. */
+  function loadIntakeStatusForPatients(patientIds) {
+    if (!data || !data.fetchPatientsWithIntake) return Promise.resolve();
+    var unique = [];
+    var seen = {};
+    (patientIds || []).forEach(function (pid) {
+      if (pid == null) return;
+      var n = Number(pid);
+      if (isNaN(n) || seen[n] || patientsCheckedForIntake.has(n)) return;
+      seen[n] = true;
+      unique.push(n);
+    });
+    if (!unique.length) return Promise.resolve();
+    return data.fetchPatientsWithIntake(unique).then(function (set) {
+      unique.forEach(function (pid) {
+        patientsCheckedForIntake.add(pid);
+        if (set && set.has(pid)) patientsWithIntake.add(pid);
+      });
+    });
   }
 
   // Asymmetric on purpose — Paul wants "completed" to be quiet confirmation
