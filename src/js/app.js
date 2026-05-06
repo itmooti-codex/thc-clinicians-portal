@@ -2972,15 +2972,19 @@
     var patientName = getPatientName(appt.patient_id);
     var statusLower = (appt.status || '').toLowerCase();
     var canEdit = statusLower !== 'completed' && statusLower !== 'cancelled';
+    // Same intake indicator as Today's Schedule — past + completed appts
+    // suppress both ✓ and warning since intake state is no longer actionable.
+    var intake = getIntakeIndicator(appt);
 
     return (
       '<div class="record-card record-card-clickable appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '" style="margin-bottom:8px;cursor:pointer">' +
         '<div class="record-card-header">' +
-          '<span class="record-card-title">' + u.escapeHtml(patientName) + '</span>' +
+          '<span class="record-card-title">' + u.escapeHtml(patientName) + intake.tick + '</span>' +
           chip +
         '</div>' +
         '<div class="record-card-body">' +
           '<p>' + u.escapeHtml(appt.type || 'Appointment') + ' &middot; ' + dateStr + (timeStr ? ' at ' + timeStr : '') + '</p>' +
+          intake.warning +
         '</div>' +
         (canEdit ? '<div class="appt-card-actions" onclick="event.stopPropagation()">' +
           '<button class="btn btn-sm btn-ghost btn-edit-appt" data-appt-id="' + appt.id + '">Edit</button>' +
@@ -3091,6 +3095,60 @@
     });
   }
 
+  // Contact.application_status values that mean "intake form has been submitted".
+  // The patient portal flips application_status as part of the same backend
+  // transaction that creates the Intake Form ClinicalNote, so checking this
+  // single field stays consistent with the patient-facing app. Anything not in
+  // this set is treated as "incomplete" so unknown / pre-intake values
+  // fail-safe to a visible warning rather than silently passing.
+  var INTAKE_COMPLETED_STATUSES = [
+    'Intake Form Completed',
+    'Initial Consultation Booked',
+    'Initial Consultation Paid',
+    'Item Purchased',
+    'Script Uploaded',
+    'External Processing $99',
+  ];
+
+  /** Returns 'complete' | 'incomplete' | null (null = patient not loaded yet). */
+  function getIntakeStatus(patientId) {
+    var patient = allPatients.find(function (p) { return p.id == patientId; });
+    if (!patient) return null;
+    var s = (patient.application_status || '').trim();
+    return INTAKE_COMPLETED_STATUSES.indexOf(s) >= 0 ? 'complete' : 'incomplete';
+  }
+
+  // Asymmetric on purpose — Paul wants "completed" to be quiet confirmation
+  // but "incomplete" to be hard to miss so the doctor knows ahead of time that
+  // action is needed. Past + completed appointments suppress both indicators
+  // (the consult is done, intake state is no longer actionable).
+  function getIntakeIndicator(appt) {
+    var statusLower = (appt && appt.status || '').toLowerCase();
+    if (statusLower === 'completed' || statusLower === 'cancelled') {
+      return { tick: '', warning: '' };
+    }
+    var nowUnix = Math.floor(Date.now() / 1000);
+    var todayStart = getDayStart(nowUnix);
+    if (appt && appt.appointment_time && appt.appointment_time < todayStart) {
+      return { tick: '', warning: '' };
+    }
+    var state = getIntakeStatus(appt && appt.patient_id);
+    if (!state) return { tick: '', warning: '' };
+    if (state === 'complete') {
+      return {
+        tick: ' <svg class="intake-tick" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-label="Intake form completed"><polyline points="20 6 9 17 4 12"/></svg>',
+        warning: '',
+      };
+    }
+    return {
+      tick: '',
+      warning: '<div class="intake-warn">' +
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+        'Intake form not completed' +
+      '</div>',
+    };
+  }
+
   function renderTodayCard(appt, nowUnix) {
     var timeStr = appt.appointment_time ? formatTime(appt.appointment_time) : '';
     var chip = getDoctorWorkflowChip(appt);
@@ -3099,13 +3157,15 @@
     var nextClass = isNext ? ' today-card-next' : ' today-card-past';
     var isCompleted = (appt.status || '').toLowerCase() === 'completed';
     var completedClass = isCompleted ? ' today-card-completed' : '';
+    var intake = getIntakeIndicator(appt);
 
     return (
       '<div class="today-card' + nextClass + completedClass + ' appt-workspace-card" data-appt-id="' + appt.id + '" data-patient-id="' + appt.patient_id + '">' +
         '<div class="today-card-time">' + u.escapeHtml(timeStr) + '</div>' +
         '<div class="today-card-info">' +
-          '<div class="today-card-patient">' + u.escapeHtml(patientName) + '</div>' +
+          '<div class="today-card-patient">' + u.escapeHtml(patientName) + intake.tick + '</div>' +
           '<div class="today-card-type">' + u.escapeHtml(appt.type || 'Appointment') + '</div>' +
+          intake.warning +
         '</div>' +
         '<div class="today-card-right">' +
           chip +

@@ -136,7 +136,9 @@
 
   /** Fetch a single contact by ID. */
   function fetchPatientById(id) {
-    var q = 'query getContactById($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code } }';
+    // application_status is read by Today's Schedule cards to flag patients who
+    // haven't completed their intake form yet — see getIntakeStatusBadge in app.js.
+    var q = 'query getContactById($id: IntScalar!) { getContacts(query: [{ where: { id: $id, _OPERATOR_: eq } }], limit: 1) { id first_name last_name email sms_number office_phone birthday age sex address city state_au zip_code application_status } }';
     return fetchGraphQL(q, { id: Number(id) }).then(function (data) {
       var list = data && data.getContacts;
       var arr = Array.isArray(list) ? list : (list && list.list) || (list && list.data) || [];

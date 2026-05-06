@@ -709,6 +709,30 @@ h1, h2, h3, h4 {
 .chip-todo { background: #f1f5f9; color: #475569; }
 .chip-open { background: var(--brand-primary-light); color: var(--brand-primary-dark); border: 1px solid rgba(32,192,192,0.35); }
 
+/* Intake-form indicators on Today + My Appointments cards. Asymmetric:
+   subtle ✓ when complete, prominent dashed-amber callout when not. */
+.intake-tick {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: -2px;
+  color: var(--brand-success);
+}
+.intake-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #fff7ed;
+  border: 1px dashed #f97316;
+  color: #9a3412;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.intake-warn svg { flex: 0 0 auto; }
+
 /* ── Intake Form (read-only tab) ─────────────────────────── */
 .intake-readonly { display: flex; flex-direction: column; gap: 14px; }
 
