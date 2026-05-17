@@ -1,0 +1,32 @@
+name: Trigger STAGING Deploy in thc-portal
+
+# When the clinicians portal's `staging` branch updates, fire a
+# repository_dispatch at thc-portal so its staging deploy workflow picks up
+# the new clinician code. The actual bake-and-build happens in thc-portal —
+# this repo's staging code ships to production via that pipeline.
+#
+# Requires the secret GH_DISPATCH_PAT (a PAT with `repo` scope, allowed to
+# trigger workflows on itmooti/thc-portal).
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch staging deploy to thc-portal
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: token ${{ secrets.GH_DISPATCH_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/itmooti/thc-portal/dispatches" \
+            -d '{
+              "event_type": "staging-clinician-update",
+              "client_payload": {
+                "source": "thc-clinicians-portal",
+                "sha": "${{ github.sha }}",
+                "ref": "${{ github.ref }}"
+              }
+            }'
