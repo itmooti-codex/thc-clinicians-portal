@@ -4,7 +4,7 @@
 // detection so the banner appears even before any infra/build-flag plumbing:
 //
 //   - <meta name="environment" content="staging"> in the host index.html
-//   - hostname starting with "staging." (e.g. staging.thehappy.clinic)
+//   - hostname is exactly "my-staging.thehappy.clinic"
 //
 // Either signal triggers the banner. Renders nothing otherwise.
 //
@@ -14,10 +14,12 @@
 (function () {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
+  var STAGING_HOSTNAME = 'my-staging.thehappy.clinic';
+
   function isStaging() {
     var metaTag = document.querySelector('meta[name="environment"]');
     if (metaTag && metaTag.getAttribute('content') === 'staging') return true;
-    if (window.location.hostname.indexOf('staging.') === 0) return true;
+    if (window.location.hostname === STAGING_HOSTNAME) return true;
     return false;
   }
 
