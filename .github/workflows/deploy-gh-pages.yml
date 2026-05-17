@@ -1,8 +1,20 @@
-name: Deploy to GitHub Pages
+# SUNSET 2026-05-17 — GitHub Pages was deprecated in favour of the Docker
+# deploy at my.thehappy.clinic/clinician/ (see PR #2's staging-deploy-trigger
+# workflow + thc-portal's deploy.yml for how the clinician portal now ships).
+#
+# Trigger changed to workflow_dispatch only so pushes to main no longer fire
+# a deploy. The file is intentionally NOT deleted — keeping it here preserves
+# the historical context and the redirect index.html that's currently live at
+# the old GH Pages URL (see PR adding src/index.html in this repo).
+#
+# To re-enable temporarily for any reason, run manually via the GitHub UI
+# (Actions tab → Deploy to GitHub Pages → Run workflow) and re-add the
+# push trigger if needed.
+
+name: Deploy to GitHub Pages (SUNSET)
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,6 +32,14 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Sunset notice
+        run: |
+          echo "===================================================================="
+          echo "GitHub Pages deploy was sunset on 2026-05-17."
+          echo "Canonical clinician portal: https://my.thehappy.clinic/clinician/"
+          echo "===================================================================="
+          echo "Continuing the manual deploy because workflow_dispatch was invoked."
+
       - name: Checkout
         uses: actions/checkout@v4
 
